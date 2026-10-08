@@ -9,9 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"lazyprojects/internal/config"
-	"lazyprojects/internal/model"
+	"github.com/puczkowskyjp/lazyprojects/internal/config"
+	"github.com/puczkowskyjp/lazyprojects/internal/model"
 )
 
 // Scanner handles discovery of projects across configured search paths.

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"log"
 
-	"lazyprojects/internal/config"
-	"lazyprojects/internal/editor"
-	"lazyprojects/internal/scanner"
-	"lazyprojects/internal/ui"
+	"github.com/puczkowskyjp/lazyprojects/internal/config"
+	"github.com/puczkowskyjp/lazyprojects/internal/editor"
+	"github.com/puczkowskyjp/lazyprojects/internal/scanner"
+	"github.com/puczkowskyjp/lazyprojects/internal/ui"
 )
 
 func main() {

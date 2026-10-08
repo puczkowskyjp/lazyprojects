@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/jroimartin/gocui"
-	"lazyprojects/internal/config"
-	"lazyprojects/internal/editor"
-	"lazyprojects/internal/model"
-	"lazyprojects/internal/scanner"
+	"github.com/puczkowskyjp/lazyprojects/internal/config"
+	"github.com/puczkowskyjp/lazyprojects/internal/editor"
+	"github.com/puczkowskyjp/lazyprojects/internal/model"
+	"github.com/puczkowskyjp/lazyprojects/internal/scanner"
 )
 
 const (

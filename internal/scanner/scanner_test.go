@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"lazyprojects/internal/config"
+	"github.com/puczkowskyjp/lazyprojects/internal/config"
 )
 
 func TestScanner(t *testing.T) {
