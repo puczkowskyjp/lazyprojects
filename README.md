@@ -6,6 +6,7 @@ Configure one or more project directories, choose your preferred terminal and ed
 
 Git metadata such as the current branch and recent commits is also available while browsing projects.
 
+
 ## Features
 
 * Discover projects across configurable directories
@@ -14,6 +15,24 @@ Git metadata such as the current branch and recent commits is also available whi
 * Open projects with your preferred editor and terminal
 * View Git metadata at a glance
 * Configure with Lua or JSON
+
+
+## Installation
+
+`lazyprojects` requires [Go](https://go.dev/doc/install).
+
+Install the latest version with:
+
+```bash
+go install github.com/puczkowskyjp/lazyprojects@latest
+```
+
+Make sure your Go binary directory is in your `PATH`, then run:
+
+```bash
+lazyprojects
+```
+
 
 ## Configuration
 
@@ -25,6 +44,7 @@ Use [`config.example.lua`](config.example.lua) or [`config.example.json`](config
 
 Set `recent_projects_limit` to retain between 5 and 10 recently opened projects; the default is 8. The application maintains the newest-first `recent_projects` list automatically after each successful project launch.
 
+
 ## Navigation
 
 | Key                     | Action                                                   |
@@ -33,6 +53,7 @@ Set `recent_projects_limit` to retain between 5 and 10 recently opened projects;
 | `j` / `k` or arrow keys | Move within the selected project list                    |
 | `Enter` / `o`           | Open the selected project                                |
 | `/`                     | Focus the filter                                         |
+
 
 ## Configuration Example
 
