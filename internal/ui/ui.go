@@ -154,7 +154,7 @@ func (u *UI) layout(g *gocui.Gui) error {
 		if err != gocui.ErrUnknownView {
 			return err
 		}
-		v.Title = " Filter Projects [/ to type, filters as you type, Enter/Esc to finish] "
+		v.Title = " Filter Projects ([ or ] focus, filters as you type, Enter/Esc to finish) "
 		v.Editable = true
 		v.Editor = gocui.EditorFunc(u.editSearch)
 	}
@@ -169,9 +169,6 @@ func (u *UI) layout(g *gocui.Gui) error {
 			return err
 		}
 		v.Title = fmt.Sprintf(" Projects (%d) ", len(u.filtered))
-		v.Highlight = true
-		v.SelBgColor = gocui.ColorBlue
-		v.SelFgColor = gocui.ColorWhite | gocui.AttrBold
 	}
 
 	// Details View (right panel)
@@ -316,13 +313,21 @@ func (u *UI) renderStatus(g *gocui.Gui) {
 	ed := u.currentEditor()
 	u.mu.Unlock()
 
-	keys := fmt.Sprintf("[j/k or ↑/↓] Move | [Enter/o] Open (%s) | [/] Filter | [e] Switch Editor | [r] Rescan | [q] Quit", ed)
+	keys := fmt.Sprintf("[ or ] Switch section | [j/k or ↑/↓] Move | [Enter/o] Open (%s) | [/] Filter | [e] Switch Editor | [r] Rescan | [q] Quit", ed)
 	fmt.Fprintf(v, "• %s\n• %s", msg, keys)
 }
 
 func (u *UI) setKeybindings() error {
 	// Global Quit
 	if err := u.gui.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, u.quit); err != nil {
+		return err
+	}
+
+	// Switch focus between the filter and project list.
+	if err := u.gui.SetKeybinding("", '[', gocui.ModNone, u.previousSection); err != nil {
+		return err
+	}
+	if err := u.gui.SetKeybinding("", ']', gocui.ModNone, u.nextSection); err != nil {
 		return err
 	}
 
@@ -454,6 +459,21 @@ func (u *UI) cycleEditor(g *gocui.Gui, v *gocui.View) error {
 func (u *UI) startSearch(g *gocui.Gui, v *gocui.View) error {
 	u.mu.Lock()
 	u.searching = true
+	u.mu.Unlock()
+	return nil
+}
+
+func (u *UI) previousSection(g *gocui.Gui, v *gocui.View) error {
+	return u.switchSection()
+}
+
+func (u *UI) nextSection(g *gocui.Gui, v *gocui.View) error {
+	return u.switchSection()
+}
+
+func (u *UI) switchSection() error {
+	u.mu.Lock()
+	u.searching = !u.searching
 	u.mu.Unlock()
 	return nil
 }
