@@ -90,7 +90,9 @@ func OpenWithOptions(editorCmd, projectPath string, termOpts TerminalOptions) er
 
 	var cmd *exec.Cmd
 
-	if runtime.GOOS == "windows" {
+	if IsTerminalEditor(cmdName) && strings.EqualFold(termOpts.App, "wezterm") {
+		cmd = newWezTermCommand(projectPath, cmdName, args, termOpts.Target)
+	} else if runtime.GOOS == "windows" {
 		if IsTerminalEditor(cmdName) {
 			termApp := strings.ToLower(strings.TrimSpace(termOpts.App))
 			if termApp == "" {
@@ -107,7 +109,6 @@ func OpenWithOptions(editorCmd, projectPath string, termOpts TerminalOptions) er
 				if strings.EqualFold(termOpts.Target, "window") {
 					wtArgs = []string{"-w", "-1", "-d", projectPath, cmdName}
 				} else {
-					// Open in a new tab in the current window
 					wtArgs = []string{"-w", "0", "nt", "-d", projectPath, cmdName}
 				}
 				if len(args) > 0 {
@@ -116,23 +117,7 @@ func OpenWithOptions(editorCmd, projectPath string, termOpts TerminalOptions) er
 					wtArgs = append(wtArgs, ".")
 				}
 				cmd = exec.Command("wt.exe", wtArgs...)
-
-			case "wezterm":
-				var wezArgs []string
-				if strings.EqualFold(termOpts.Target, "window") {
-					wezArgs = []string{"start", "--cwd", projectPath, cmdName}
-				} else {
-					wezArgs = []string{"cli", "spawn", "--cwd", projectPath, cmdName}
-				}
-				if len(args) > 0 {
-					wezArgs = append(wezArgs, args...)
-				} else {
-					wezArgs = append(wezArgs, ".")
-				}
-				cmd = exec.Command("wezterm", wezArgs...)
-
 			default:
-				// Fallback to cmd.exe start
 				startArgs := []string{"/c", "start", "", "/d", projectPath, cmdName}
 				if len(args) > 0 {
 					startArgs = append(startArgs, args...)
@@ -142,7 +127,6 @@ func OpenWithOptions(editorCmd, projectPath string, termOpts TerminalOptions) er
 				cmd = exec.Command("cmd.exe", startArgs...)
 			}
 		} else {
-			// Launch GUI editors completely detached using start
 			startArgs := append([]string{"/c", "start", "", cmdName}, append(args, projectPath)...)
 			cmd = exec.Command("cmd.exe", startArgs...)
 		}
@@ -156,4 +140,23 @@ func OpenWithOptions(editorCmd, projectPath string, termOpts TerminalOptions) er
 	}
 
 	return nil
+}
+
+func newWezTermCommand(projectPath, cmdName string, args []string, target string) *exec.Cmd {
+	var wezArgs []string
+	if strings.EqualFold(target, "tab") && os.Getenv("WEZTERM_PANE") != "" {
+		wezArgs = []string{"cli", "spawn", "--cwd", projectPath, "--", cmdName}
+	} else {
+		wezArgs = []string{"start"}
+		if strings.EqualFold(target, "tab") {
+			wezArgs = append(wezArgs, "--new-tab")
+		}
+		wezArgs = append(wezArgs, "--cwd", projectPath, "--", cmdName)
+	}
+	if len(args) > 0 {
+		wezArgs = append(wezArgs, args...)
+	} else {
+		wezArgs = append(wezArgs, ".")
+	}
+	return exec.Command("wezterm", wezArgs...)
 }

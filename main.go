@@ -23,7 +23,10 @@ func main() {
 	}
 
 	if *openFlag != "" {
-		if err := editor.Open(cfg.Editor, *openFlag); err != nil {
+		if err := editor.OpenWithOptions(cfg.Editor, *openFlag, editor.TerminalOptions{
+			App:    cfg.Terminal.App,
+			Target: cfg.Terminal.Target,
+		}); err != nil {
 			log.Fatalf("Error opening project: %v", err)
 		}
 		fmt.Printf("Opened project %s in %s\n", *openFlag, cfg.Editor)
