@@ -154,8 +154,9 @@ func (u *UI) layout(g *gocui.Gui) error {
 		if err != gocui.ErrUnknownView {
 			return err
 		}
-		v.Title = " Filter Projects [/ to type, Enter/Esc to finish] "
+		v.Title = " Filter Projects [/ to type, filters as you type, Enter/Esc to finish] "
 		v.Editable = true
+		v.Editor = gocui.EditorFunc(u.editSearch)
 	}
 
 	// Projects List View (left panel)
@@ -473,14 +474,26 @@ func (u *UI) stopSearch(g *gocui.Gui, v *gocui.View) error {
 }
 
 func (u *UI) confirmSearch(g *gocui.Gui, v *gocui.View) error {
-	buf := v.Buffer()
+	u.updateSearchQuery(v.Buffer())
 	u.mu.Lock()
-	u.searchQuery = strings.TrimSpace(buf)
-	u.applyFilterLocked()
 	u.searching = false
 	u.statusMsg = fmt.Sprintf("Filter: %q (%d matches)", u.searchQuery, len(u.filtered))
 	u.mu.Unlock()
 	return nil
+}
+
+func (u *UI) editSearch(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) {
+	gocui.DefaultEditor.Edit(v, key, ch, mod)
+	u.updateSearchQuery(v.Buffer())
+}
+
+func (u *UI) updateSearchQuery(query string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	u.searchQuery = strings.TrimSpace(query)
+	u.applyFilterLocked()
+	u.statusMsg = fmt.Sprintf("Filter: %q (%d matches)", u.searchQuery, len(u.filtered))
 }
 
 func (u *UI) rescan(g *gocui.Gui, v *gocui.View) error {
