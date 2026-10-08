@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/puczkowskyjp/lazyprojects/internal/config"
 	"github.com/puczkowskyjp/lazyprojects/internal/editor"
@@ -12,10 +13,18 @@ import (
 	"github.com/puczkowskyjp/lazyprojects/internal/ui"
 )
 
+var version = "development"
+
 func main() {
+	versionFlag := flag.Bool("version", false, "Print lazyprojects version and exit")
 	listFlag := flag.Bool("list", false, "List discovered projects and exit")
 	openFlag := flag.String("open", "", "Open a specific project by exact path")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("lazyprojects %s\n", version)
+		os.Exit(0)
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
