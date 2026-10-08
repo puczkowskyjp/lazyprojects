@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -17,27 +18,39 @@ import (
 
 const (
 	ViewProjects = "projects"
+	ViewRecent   = "recent"
 	ViewDetails  = "details"
 	ViewSearch   = "search"
 	ViewStatus   = "status"
 )
 
+type section int
+
+const (
+	sectionSearch section = iota
+	sectionRecent
+	sectionProjects
+	sectionCount
+)
+
 // UI manages the terminal interface and application state.
 type UI struct {
-	gui           *gocui.Gui
-	config        *config.Config
-	scanner       *scanner.Scanner
-	projects      []model.Project
-	filtered      []model.Project
-	selectedIndex int
-	searchQuery   string
-	searching     bool
-	statusMsg     string
-	availableEds  []string
-	currentEdIdx  int
-	gitCache      map[string]string
-	loadingGit    map[string]bool
-	mu            sync.Mutex
+	gui                 *gocui.Gui
+	config              *config.Config
+	scanner             *scanner.Scanner
+	projects            []model.Project
+	filtered            []model.Project
+	recent              []model.Project
+	selectedIndex       int
+	selectedRecentIndex int
+	searchQuery         string
+	activeSection       section
+	statusMsg           string
+	availableEds        []string
+	currentEdIdx        int
+	gitCache            map[string]string
+	loadingGit          map[string]bool
+	mu                  sync.Mutex
 }
 
 // New creates and initializes a UI instance.
@@ -52,13 +65,14 @@ func New(cfg *config.Config) *UI {
 	}
 
 	return &UI{
-		config:       cfg,
-		scanner:      scanner.New(cfg),
-		availableEds: available,
-		currentEdIdx: edIdx,
-		gitCache:     make(map[string]string),
-		loadingGit:   make(map[string]bool),
-		statusMsg:    "Ready. Use ↑/↓ or j/k to browse, Enter to open.",
+		config:        cfg,
+		scanner:       scanner.New(cfg),
+		availableEds:  available,
+		currentEdIdx:  edIdx,
+		activeSection: sectionProjects,
+		gitCache:      make(map[string]string),
+		loadingGit:    make(map[string]bool),
+		statusMsg:     "Ready. Use ↑/↓ or j/k to browse, Enter to open.",
 	}
 }
 
@@ -100,6 +114,7 @@ func (u *UI) refreshProjects() {
 	}
 	u.projects = projects
 	u.applyFilterLocked()
+	u.refreshRecentLocked()
 	u.statusMsg = fmt.Sprintf("Ready. Found %d projects. Active editor: [%s]", len(u.projects), u.currentEditor())
 }
 
@@ -139,15 +154,40 @@ func (u *UI) applyFilterLocked() {
 	}
 }
 
+func (u *UI) refreshRecentLocked() {
+	projectsByPath := make(map[string]model.Project, len(u.projects))
+	for _, project := range u.projects {
+		projectsByPath[filepath.Clean(project.Path)] = project
+	}
+
+	u.recent = u.recent[:0]
+	for _, path := range u.config.RecentProjects {
+		if project, ok := projectsByPath[filepath.Clean(path)]; ok {
+			u.recent = append(u.recent, project)
+		}
+	}
+
+	if u.selectedRecentIndex >= len(u.recent) {
+		u.selectedRecentIndex = len(u.recent) - 1
+	}
+	if u.selectedRecentIndex < 0 {
+		u.selectedRecentIndex = 0
+	}
+}
+
 func (u *UI) layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
-	if maxX < 40 || maxY < 10 {
+	if maxX < 40 || maxY < 14 {
 		return nil
 	}
 
 	searchHeight := 3
 	statusHeight := 4
 	mainHeight := maxY - searchHeight - statusHeight
+	recentHeight := mainHeight / 3
+	if recentHeight < 3 {
+		recentHeight = 3
+	}
 
 	// Search View
 	if v, err := g.SetView(ViewSearch, 0, 0, maxX-1, searchHeight-1); err != nil {
@@ -164,7 +204,13 @@ func (u *UI) layout(g *gocui.Gui) error {
 	if listWidth < 30 {
 		listWidth = 30
 	}
-	if v, err := g.SetView(ViewProjects, 0, searchHeight, listWidth, searchHeight+mainHeight); err != nil {
+	if v, err := g.SetView(ViewRecent, 0, searchHeight, listWidth, searchHeight+recentHeight-1); err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		v.Title = fmt.Sprintf(" Recently Opened (%d) ", len(u.recent))
+	}
+	if v, err := g.SetView(ViewProjects, 0, searchHeight+recentHeight, listWidth, maxY-statusHeight-1); err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
 		}
@@ -172,7 +218,7 @@ func (u *UI) layout(g *gocui.Gui) error {
 	}
 
 	// Details View (right panel)
-	if v, err := g.SetView(ViewDetails, listWidth+1, searchHeight, maxX-1, searchHeight+mainHeight); err != nil {
+	if v, err := g.SetView(ViewDetails, listWidth+1, searchHeight, maxX-1, maxY-statusHeight-1); err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
 		}
@@ -189,19 +235,26 @@ func (u *UI) layout(g *gocui.Gui) error {
 	}
 
 	u.renderProjects(g)
+	u.renderRecent(g)
 	u.renderDetails(g)
 	u.renderStatus(g)
 
-	if !u.searching {
-		if _, err := g.SetCurrentView(ViewProjects); err != nil {
-			return err
-		}
-		g.Cursor = false
-	} else {
+	switch u.activeSection {
+	case sectionSearch:
 		if _, err := g.SetCurrentView(ViewSearch); err != nil {
 			return err
 		}
 		g.Cursor = true
+	case sectionRecent:
+		if _, err := g.SetCurrentView(ViewRecent); err != nil {
+			return err
+		}
+		g.Cursor = false
+	default:
+		if _, err := g.SetCurrentView(ViewProjects); err != nil {
+			return err
+		}
+		g.Cursor = false
 	}
 
 	return nil
@@ -231,6 +284,34 @@ func (u *UI) renderProjects(g *gocui.Gui) {
 	}
 }
 
+func (u *UI) renderRecent(g *gocui.Gui) {
+	v, err := g.View(ViewRecent)
+	if err != nil {
+		return
+	}
+	v.Clear()
+	v.Title = fmt.Sprintf(" Recently Opened (%d) ", len(u.recent))
+
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	if len(u.recent) == 0 {
+		fmt.Fprintln(v, "No recently opened projects.")
+		return
+	}
+
+	_, height := v.Size()
+	start, end := visibleRange(len(u.recent), u.selectedRecentIndex, height)
+	for i := start; i < end; i++ {
+		project := u.recent[i]
+		cursor := "  "
+		if i == u.selectedRecentIndex {
+			cursor = "▶ "
+		}
+		fmt.Fprintf(v, "%s%s\n", cursor, truncate(project.Name, 28))
+	}
+}
+
 func (u *UI) renderDetails(g *gocui.Gui) {
 	v, err := g.View(ViewDetails)
 	if err != nil {
@@ -239,13 +320,13 @@ func (u *UI) renderDetails(g *gocui.Gui) {
 	v.Clear()
 
 	u.mu.Lock()
-	if len(u.filtered) == 0 || u.selectedIndex >= len(u.filtered) {
+	p, ok := u.currentProjectLocked()
+	if !ok {
 		u.mu.Unlock()
 		fmt.Fprintln(v, "No projects matching criteria.")
 		return
 	}
 
-	p := u.filtered[u.selectedIndex]
 	ed := u.currentEditor()
 	cachedGit, hasGitLog := u.gitCache[p.Path]
 	isLoading := u.loadingGit[p.Path]
@@ -301,6 +382,30 @@ func (u *UI) renderDetails(g *gocui.Gui) {
 	}
 }
 
+func (u *UI) currentProjectLocked() (model.Project, bool) {
+	if u.activeSection == sectionRecent {
+		if u.selectedRecentIndex >= 0 && u.selectedRecentIndex < len(u.recent) {
+			return u.recent[u.selectedRecentIndex], true
+		}
+		return model.Project{}, false
+	}
+	if u.selectedIndex >= 0 && u.selectedIndex < len(u.filtered) {
+		return u.filtered[u.selectedIndex], true
+	}
+	return model.Project{}, false
+}
+
+func visibleRange(length, selected, height int) (int, int) {
+	if height <= 0 || length == 0 {
+		return 0, 0
+	}
+	if selected < height {
+		return 0, min(length, height)
+	}
+	end := min(length, selected+1)
+	return end - height, end
+}
+
 func (u *UI) renderStatus(g *gocui.Gui) {
 	v, err := g.View(ViewStatus)
 	if err != nil {
@@ -323,7 +428,7 @@ func (u *UI) setKeybindings() error {
 		return err
 	}
 
-	// Switch focus between the filter and project list.
+	// Switch focus between filter, recent projects, and project list.
 	if err := u.gui.SetKeybinding("", '[', gocui.ModNone, u.previousSection); err != nil {
 		return err
 	}
@@ -331,22 +436,26 @@ func (u *UI) setKeybindings() error {
 		return err
 	}
 
-	// Projects View navigation
+	// Project list navigation
 	navKeys := []interface{}{
 		gocui.KeyArrowDown, 'j',
 	}
-	for _, k := range navKeys {
-		if err := u.gui.SetKeybinding(ViewProjects, k, gocui.ModNone, u.cursorDown); err != nil {
-			return err
+	for _, view := range []string{ViewProjects, ViewRecent} {
+		for _, k := range navKeys {
+			if err := u.gui.SetKeybinding(view, k, gocui.ModNone, u.cursorDown); err != nil {
+				return err
+			}
 		}
 	}
 
 	upKeys := []interface{}{
 		gocui.KeyArrowUp, 'k',
 	}
-	for _, k := range upKeys {
-		if err := u.gui.SetKeybinding(ViewProjects, k, gocui.ModNone, u.cursorUp); err != nil {
-			return err
+	for _, view := range []string{ViewProjects, ViewRecent} {
+		for _, k := range upKeys {
+			if err := u.gui.SetKeybinding(view, k, gocui.ModNone, u.cursorUp); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -354,30 +463,40 @@ func (u *UI) setKeybindings() error {
 	openKeys := []interface{}{
 		gocui.KeyEnter, 'o',
 	}
-	for _, k := range openKeys {
-		if err := u.gui.SetKeybinding(ViewProjects, k, gocui.ModNone, u.openProject); err != nil {
-			return err
+	for _, view := range []string{ViewProjects, ViewRecent} {
+		for _, k := range openKeys {
+			if err := u.gui.SetKeybinding(view, k, gocui.ModNone, u.openProject); err != nil {
+				return err
+			}
 		}
 	}
 
 	// Start Search
-	if err := u.gui.SetKeybinding(ViewProjects, '/', gocui.ModNone, u.startSearch); err != nil {
-		return err
+	for _, view := range []string{ViewProjects, ViewRecent} {
+		if err := u.gui.SetKeybinding(view, '/', gocui.ModNone, u.startSearch); err != nil {
+			return err
+		}
 	}
 
 	// Rescan
-	if err := u.gui.SetKeybinding(ViewProjects, 'r', gocui.ModNone, u.rescan); err != nil {
-		return err
+	for _, view := range []string{ViewProjects, ViewRecent} {
+		if err := u.gui.SetKeybinding(view, 'r', gocui.ModNone, u.rescan); err != nil {
+			return err
+		}
 	}
 
 	// Switch Editor
-	if err := u.gui.SetKeybinding(ViewProjects, 'e', gocui.ModNone, u.cycleEditor); err != nil {
-		return err
+	for _, view := range []string{ViewProjects, ViewRecent} {
+		if err := u.gui.SetKeybinding(view, 'e', gocui.ModNone, u.cycleEditor); err != nil {
+			return err
+		}
 	}
 
 	// Quit with q
-	if err := u.gui.SetKeybinding(ViewProjects, 'q', gocui.ModNone, u.quit); err != nil {
-		return err
+	for _, view := range []string{ViewProjects, ViewRecent} {
+		if err := u.gui.SetKeybinding(view, 'q', gocui.ModNone, u.quit); err != nil {
+			return err
+		}
 	}
 
 	// Search View Keybindings
@@ -393,7 +512,9 @@ func (u *UI) setKeybindings() error {
 
 func (u *UI) cursorDown(g *gocui.Gui, v *gocui.View) error {
 	u.mu.Lock()
-	if u.selectedIndex < len(u.filtered)-1 {
+	if u.activeSection == sectionRecent && u.selectedRecentIndex < len(u.recent)-1 {
+		u.selectedRecentIndex++
+	} else if u.activeSection == sectionProjects && u.selectedIndex < len(u.filtered)-1 {
 		u.selectedIndex++
 	}
 	u.mu.Unlock()
@@ -402,7 +523,9 @@ func (u *UI) cursorDown(g *gocui.Gui, v *gocui.View) error {
 
 func (u *UI) cursorUp(g *gocui.Gui, v *gocui.View) error {
 	u.mu.Lock()
-	if u.selectedIndex > 0 {
+	if u.activeSection == sectionRecent && u.selectedRecentIndex > 0 {
+		u.selectedRecentIndex--
+	} else if u.activeSection == sectionProjects && u.selectedIndex > 0 {
 		u.selectedIndex--
 	}
 	u.mu.Unlock()
@@ -411,11 +534,11 @@ func (u *UI) cursorUp(g *gocui.Gui, v *gocui.View) error {
 
 func (u *UI) openProject(g *gocui.Gui, v *gocui.View) error {
 	u.mu.Lock()
-	if len(u.filtered) == 0 || u.selectedIndex >= len(u.filtered) {
+	proj, ok := u.currentProjectLocked()
+	if !ok {
 		u.mu.Unlock()
 		return nil
 	}
-	proj := u.filtered[u.selectedIndex]
 	ed := u.currentEditor()
 	termOpts := editor.TerminalOptions{
 		App:    u.config.Terminal.App,
@@ -433,7 +556,13 @@ func (u *UI) openProject(g *gocui.Gui, v *gocui.View) error {
 				if err != nil {
 					u.statusMsg = fmt.Sprintf("Error opening %s: %v", name, err)
 				} else {
-					u.statusMsg = fmt.Sprintf("Successfully opened %s in %s", name, editorCmd)
+					u.config.RecordRecentProject(path)
+					u.refreshRecentLocked()
+					if saveErr := u.config.Save(); saveErr != nil {
+						u.statusMsg = fmt.Sprintf("Opened %s in %s, but failed to save recent projects: %v", name, editorCmd, saveErr)
+					} else {
+						u.statusMsg = fmt.Sprintf("Successfully opened %s in %s", name, editorCmd)
+					}
 				}
 				u.mu.Unlock()
 				return nil
@@ -458,29 +587,29 @@ func (u *UI) cycleEditor(g *gocui.Gui, v *gocui.View) error {
 
 func (u *UI) startSearch(g *gocui.Gui, v *gocui.View) error {
 	u.mu.Lock()
-	u.searching = true
+	u.activeSection = sectionSearch
 	u.mu.Unlock()
 	return nil
 }
 
 func (u *UI) previousSection(g *gocui.Gui, v *gocui.View) error {
-	return u.switchSection()
+	return u.switchSection(-1)
 }
 
 func (u *UI) nextSection(g *gocui.Gui, v *gocui.View) error {
-	return u.switchSection()
+	return u.switchSection(1)
 }
 
-func (u *UI) switchSection() error {
+func (u *UI) switchSection(direction section) error {
 	u.mu.Lock()
-	u.searching = !u.searching
+	u.activeSection = (u.activeSection + direction + sectionCount) % sectionCount
 	u.mu.Unlock()
 	return nil
 }
 
 func (u *UI) stopSearch(g *gocui.Gui, v *gocui.View) error {
 	u.mu.Lock()
-	u.searching = false
+	u.activeSection = sectionProjects
 	u.searchQuery = ""
 	u.applyFilterLocked()
 	u.statusMsg = "Search cleared. Browsing all projects."
@@ -496,7 +625,7 @@ func (u *UI) stopSearch(g *gocui.Gui, v *gocui.View) error {
 func (u *UI) confirmSearch(g *gocui.Gui, v *gocui.View) error {
 	u.updateSearchQuery(v.Buffer())
 	u.mu.Lock()
-	u.searching = false
+	u.activeSection = sectionProjects
 	u.statusMsg = fmt.Sprintf("Filter: %q (%d matches)", u.searchQuery, len(u.filtered))
 	u.mu.Unlock()
 	return nil

@@ -29,6 +29,10 @@ func main() {
 		}); err != nil {
 			log.Fatalf("Error opening project: %v", err)
 		}
+		cfg.RecordRecentProject(*openFlag)
+		if err := cfg.Save(); err != nil {
+			log.Fatalf("Opened project, but failed to save recent projects: %v", err)
+		}
 		fmt.Printf("Opened project %s in %s\n", *openFlag, cfg.Editor)
 		return
 	}

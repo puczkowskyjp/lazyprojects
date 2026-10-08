@@ -11,10 +11,20 @@ import (
 )
 
 const (
-	ConfigDirName     = "lazyprojects"
-	ConfigLuaFileName = "config.lua"
-	ConfigJSONFileName = "config.json"
-	DefaultMaxDepth   = 4
+	ConfigDirName         = "lazyprojects"
+	ConfigLuaFileName     = "config.lua"
+	ConfigJSONFileName    = "config.json"
+	DefaultMaxDepth       = 4
+	MinRecentProjects     = 5
+	MaxRecentProjects     = 10
+	DefaultRecentProjects = 8
+)
+
+type configFormat int
+
+const (
+	configFormatLua configFormat = iota
+	configFormatJSON
 )
 
 // TerminalConfig configures how terminal-based editors are launched.
@@ -25,11 +35,14 @@ type TerminalConfig struct {
 
 // Config holds user configuration for lazyprojects.
 type Config struct {
-	SearchPaths []string       `json:"search_paths"`
-	MaxDepth    int            `json:"max_depth"`
-	IgnoredDirs []string       `json:"ignored_dirs"`
-	Editor      string         `json:"editor"`
-	Terminal    TerminalConfig `json:"terminal"`
+	SearchPaths         []string       `json:"search_paths"`
+	MaxDepth            int            `json:"max_depth"`
+	IgnoredDirs         []string       `json:"ignored_dirs"`
+	Editor              string         `json:"editor"`
+	Terminal            TerminalConfig `json:"terminal"`
+	RecentProjects      []string       `json:"recent_projects"`
+	RecentProjectsLimit int            `json:"recent_projects_limit"`
+	format              configFormat
 }
 
 // DefaultIgnoredDirs returns a standard slice of directory names to skip.
@@ -95,6 +108,7 @@ func DefaultConfig() (*Config, error) {
 			App:    "wt",
 			Target: "tab",
 		},
+		RecentProjectsLimit: DefaultRecentProjects,
 	}, nil
 }
 
@@ -178,6 +192,14 @@ func loadFromLua(path string) (*Config, error) {
 			}
 		}
 	}
+	if recentProjects := getLuaStringSlice(tbl, "recent_projects"); recentProjects != nil {
+		cfg.RecentProjects = recentProjects
+	}
+	if recentProjectsLimit := getLuaInt(tbl, "recent_projects_limit"); recentProjectsLimit != 0 {
+		cfg.RecentProjectsLimit = recentProjectsLimit
+	}
+	cfg.RecentProjectsLimit = normalizeRecentProjectsLimit(cfg.RecentProjectsLimit)
+	cfg.format = configFormatLua
 
 	return &cfg, nil
 }
@@ -203,7 +225,45 @@ func loadFromJSON(path string) (*Config, error) {
 	if cfg.Terminal.Target == "" {
 		cfg.Terminal.Target = "tab"
 	}
+	cfg.RecentProjectsLimit = normalizeRecentProjectsLimit(cfg.RecentProjectsLimit)
+	cfg.format = configFormatJSON
 	return &cfg, nil
+}
+
+func normalizeRecentProjectsLimit(limit int) int {
+	if limit == 0 {
+		return DefaultRecentProjects
+	}
+	if limit < MinRecentProjects {
+		return MinRecentProjects
+	}
+	if limit > MaxRecentProjects {
+		return MaxRecentProjects
+	}
+	return limit
+}
+
+// RecordRecentProject adds a project path to the newest-first recent project list.
+func (c *Config) RecordRecentProject(projectPath string) {
+	projectPath = filepath.Clean(projectPath)
+	recentProjects := make([]string, 0, normalizeRecentProjectsLimit(c.RecentProjectsLimit))
+	seen := map[string]struct{}{projectPath: {}}
+	recentProjects = append(recentProjects, projectPath)
+
+	for _, path := range c.RecentProjects {
+		path = filepath.Clean(path)
+		if _, exists := seen[path]; exists {
+			continue
+		}
+		seen[path] = struct{}{}
+		recentProjects = append(recentProjects, path)
+	}
+
+	c.RecentProjectsLimit = normalizeRecentProjectsLimit(c.RecentProjectsLimit)
+	if len(recentProjects) > c.RecentProjectsLimit {
+		recentProjects = recentProjects[:c.RecentProjectsLimit]
+	}
+	c.RecentProjects = recentProjects
 }
 
 func getLuaString(tbl *lua.LTable, key string) string {
@@ -239,6 +299,10 @@ func getLuaStringSlice(tbl *lua.LTable, key string) []string {
 
 // Save writes the configuration to ~/.config/lazyprojects/config.lua.
 func (c *Config) Save() error {
+	if c.format == configFormatJSON {
+		return c.saveJSON()
+	}
+
 	dir, err := GetConfigDir()
 	if err != nil {
 		return err
@@ -277,6 +341,16 @@ func (c *Config) Save() error {
 	// editor
 	sb.WriteString(fmt.Sprintf("  -- Default editor command (\"nvim\", \"code\", \"notepad\", etc.)\n  editor = %q,\n\n", c.Editor))
 
+	// recent projects
+	c.RecentProjectsLimit = normalizeRecentProjectsLimit(c.RecentProjectsLimit)
+	sb.WriteString(fmt.Sprintf("  -- Number of recently opened projects to retain (%d-%d)\n  recent_projects_limit = %d,\n\n", MinRecentProjects, MaxRecentProjects, c.RecentProjectsLimit))
+	sb.WriteString("  -- Managed automatically after a project is opened\n  recent_projects = {\n")
+	for _, p := range c.RecentProjects {
+		escaped := strings.ReplaceAll(p, "\\", "\\\\")
+		sb.WriteString(fmt.Sprintf("    %q,\n", escaped))
+	}
+	sb.WriteString("  },\n\n")
+
 	// terminal
 	sb.WriteString("  -- Terminal settings for terminal-based editors (e.g. nvim, vim)\n")
 	sb.WriteString("  terminal = {\n")
@@ -289,5 +363,27 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to write lua config file %q: %w", path, err)
 	}
 
+	return nil
+}
+
+func (c *Config) saveJSON() error {
+	dir, err := GetConfigDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory %q: %w", dir, err)
+	}
+
+	c.RecentProjectsLimit = normalizeRecentProjectsLimit(c.RecentProjectsLimit)
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON config: %w", err)
+	}
+
+	path := filepath.Join(dir, ConfigJSONFileName)
+	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
+		return fmt.Errorf("failed to write JSON config file %q: %w", path, err)
+	}
 	return nil
 }
