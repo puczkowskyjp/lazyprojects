@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/jroimartin/gocui"
 	"github.com/puczkowskyjp/lazyprojects/internal/config"
@@ -279,11 +280,14 @@ func (u *UI) renderProjects(g *gocui.Gui) {
 		if i == u.selectedIndex {
 			cursor = "▶ "
 		}
-		branch := ""
+		typeLabel := colorize(fmt.Sprintf("[%-4s]", p.Type), "1", "36")
+		line := fmt.Sprintf("%s%-20s %s", cursor, truncate(p.Name, 20), typeLabel)
+
 		if p.Branch != "" {
-			branch = fmt.Sprintf(" (%s)", p.Branch)
+			line += colorize(fmt.Sprintf(" (%s)", p.Branch), "33")
 		}
-		fmt.Fprintf(v, "%s%-20s [%-4s]%s\n", cursor, truncate(p.Name, 20), p.Type, branch)
+
+		fmt.Fprintln(v, line)
 	}
 }
 
@@ -337,10 +341,10 @@ func (u *UI) renderDetails(g *gocui.Gui) {
 
 	fmt.Fprintf(v, "Action:   ▶ Press Enter or 'o' to open in [%s]\n", ed)
 	fmt.Fprintf(v, "Project:  %s\n", p.Name)
-	fmt.Fprintf(v, "Type:     %s\n", p.Type)
+	fmt.Fprintf(v, "Type:     %s\n", colorize(p.Type, "1", "36"))
 	fmt.Fprintf(v, "Path:     %s\n", p.Path)
 	if p.Branch != "" {
-		fmt.Fprintf(v, "Branch:   %s\n", p.Branch)
+		fmt.Fprintf(v, "Branch:   %s\n", colorize(p.Branch, "33"))
 	}
 	if !p.LastModified.IsZero() {
 		fmt.Fprintf(v, "Modified: %s\n", p.LastModified.Format("2006-01-02 15:04:05"))
@@ -350,7 +354,13 @@ func (u *UI) renderDetails(g *gocui.Gui) {
 	if hasGitLog {
 		if cachedGit != "" {
 			fmt.Fprintln(v, "Recent Commits:")
-			fmt.Fprint(v, cachedGit)
+			for _, commitLine := range strings.Split(strings.TrimRight(cachedGit, "\n"), "\n") {
+				if hash, ok := commitHash(commitLine); ok {
+					fmt.Fprintln(v, colorizeCommitLine(commitLine, hash))
+					continue
+				}
+				fmt.Fprintln(v, commitLine)
+			}
 		} else {
 			fmt.Fprintln(v, "(No git commit history)")
 		}
@@ -383,6 +393,40 @@ func (u *UI) renderDetails(g *gocui.Gui) {
 		}(p.Path)
 		fmt.Fprintln(v, "Loading git history...")
 	}
+}
+
+func colorize(text string, codes ...string) string {
+	if text == "" || len(codes) == 0 {
+		return text
+	}
+	return fmt.Sprintf("\x1b[%sm%s\x1b[0m", strings.Join(codes, ";"), text)
+}
+
+func colorizeCommitLine(line, hash string) string {
+	if hash == "" || !strings.HasPrefix(line, hash) {
+		return line
+	}
+	return colorize(hash, "1", "35") + line[len(hash):]
+}
+
+func commitHash(line string) (string, bool) {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return "", false
+	}
+
+	hash := fields[0]
+	if len(hash) < 7 || len(hash) > 40 {
+		return "", false
+	}
+
+	for _, ch := range hash {
+		if !unicode.IsDigit(ch) && (ch < 'a' || ch > 'f') && (ch < 'A' || ch > 'F') {
+			return "", false
+		}
+	}
+
+	return hash, true
 }
 
 func (u *UI) currentProjectLocked() (model.Project, bool) {
