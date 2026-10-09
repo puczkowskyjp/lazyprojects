@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+
 	"github.com/puczkowskyjp/lazyprojects/internal/config"
 	"github.com/puczkowskyjp/lazyprojects/internal/model"
 )
@@ -50,6 +51,14 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 			continue
 		}
 
+		if proj, isProj := s.detectProject(cleanRoot, false); isProj {
+			if !seenPaths[proj.Path] {
+				seenPaths[proj.Path] = true
+				projects = append(projects, proj)
+			}
+			continue
+		}
+
 		err = filepath.WalkDir(cleanRoot, func(currentPath string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return nil
@@ -86,7 +95,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 				return nil
 			}
 
-			proj, isProj := s.detectProject(currentPath)
+			proj, isProj := s.detectProject(currentPath, true)
 			if isProj {
 				if !seenPaths[proj.Path] {
 					seenPaths[proj.Path] = true
@@ -113,7 +122,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 }
 
 // detectProject inspects a directory for indicators of a project.
-func (s *Scanner) detectProject(dirPath string) (model.Project, bool) {
+func (s *Scanner) detectProject(dirPath string, allowGitOnly bool) (model.Project, bool) {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return model.Project{}, false
@@ -154,7 +163,7 @@ func (s *Scanner) detectProject(dirPath string) (model.Project, bool) {
 		}
 	}
 
-	if projectType == "" && hasGit {
+	if projectType == "" && hasGit && allowGitOnly {
 		projectType = "Git"
 	}
 
