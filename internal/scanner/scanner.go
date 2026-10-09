@@ -9,9 +9,12 @@ import (
 	"sort"
 	"strings"
 	"time"
+
 	"github.com/puczkowskyjp/lazyprojects/internal/config"
 	"github.com/puczkowskyjp/lazyprojects/internal/model"
 )
+
+const nestedProjectProbeMaxDepth = 3
 
 // Scanner handles discovery of projects across configured search paths.
 type Scanner struct {
@@ -50,6 +53,14 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 			continue
 		}
 
+		if proj, isProj := s.detectProject(cleanRoot, false, 0); isProj {
+			if !seenPaths[proj.Path] {
+				seenPaths[proj.Path] = true
+				projects = append(projects, proj)
+			}
+			continue
+		}
+
 		err = filepath.WalkDir(cleanRoot, func(currentPath string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return nil
@@ -63,13 +74,11 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 
 			name := d.Name()
 
-			// Skip ignored directory names
 			if d.IsDir() {
 				if ignoredMap[strings.ToLower(name)] {
 					return filepath.SkipDir
 				}
 
-				// Check depth relative to search root
 				rel, err := filepath.Rel(cleanRoot, currentPath)
 				if err == nil && rel != "." {
 					depth := len(strings.Split(rel, string(filepath.Separator)))
@@ -81,18 +90,17 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 				return nil
 			}
 
-			// Do not process searchRoot itself as a project unless marked
 			if cleanRoot == currentPath {
 				return nil
 			}
 
-			proj, isProj := s.detectProject(currentPath)
+			remainingDepth := s.remainingDepth(cleanRoot, currentPath)
+			proj, isProj := s.detectProject(currentPath, true, remainingDepth)
 			if isProj {
 				if !seenPaths[proj.Path] {
 					seenPaths[proj.Path] = true
 					projects = append(projects, proj)
 				}
-				// Stop descending into the project directory
 				return filepath.SkipDir
 			}
 
@@ -104,7 +112,6 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 		}
 	}
 
-	// Sort projects by LastModified descending
 	sort.Slice(projects, func(i, j int) bool {
 		return projects[i].LastModified.After(projects[j].LastModified)
 	})
@@ -112,8 +119,28 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 	return projects, nil
 }
 
+func (s *Scanner) remainingDepth(cleanRoot, currentPath string) int {
+	if s.config == nil {
+		return 0
+	}
+
+	remainingDepth := s.config.MaxDepth
+	rel, err := filepath.Rel(cleanRoot, currentPath)
+	if err != nil || rel == "." {
+		return remainingDepth
+	}
+
+	currentDepth := len(strings.Split(rel, string(filepath.Separator)))
+	remainingDepth -= currentDepth
+	if remainingDepth < 0 {
+		return 0
+	}
+
+	return remainingDepth
+}
+
 // detectProject inspects a directory for indicators of a project.
-func (s *Scanner) detectProject(dirPath string) (model.Project, bool) {
+func (s *Scanner) detectProject(dirPath string, allowGitOnly bool, remainingDepth int) (model.Project, bool) {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return model.Project{}, false
@@ -137,24 +164,17 @@ func (s *Scanner) detectProject(dirPath string) (model.Project, bool) {
 			hasGit = true
 			continue
 		}
+	}
 
-		if !entry.IsDir() {
-			switch {
-			case lower == "go.mod":
-				projectType = "Go"
-			case lower == "package.json" && projectType == "":
-				projectType = "Node"
-			case lower == "cargo.toml" && projectType == "":
-				projectType = "Rust"
-			case (lower == "pyproject.toml" || lower == "requirements.txt") && projectType == "":
-				projectType = "Python"
-			case (strings.HasSuffix(lower, ".sln") || strings.HasSuffix(lower, ".csproj")) && projectType == "":
-				projectType = ".NET"
-			}
+	projectType = directProjectType(entries)
+	if projectType == "" {
+		probeDepth := min(remainingDepth, nestedProjectProbeMaxDepth)
+		if nestedType, ok := s.detectNestedProjectType(dirPath, probeDepth); ok {
+			projectType = nestedType
 		}
 	}
 
-	if projectType == "" && hasGit {
+	if projectType == "" && hasGit && allowGitOnly {
 		projectType = "Git"
 	}
 
@@ -181,6 +201,114 @@ func (s *Scanner) detectProject(dirPath string) (model.Project, bool) {
 	}, true
 }
 
+func (s *Scanner) detectNestedProjectType(dirPath string, remainingDepth int) (string, bool) {
+	if remainingDepth <= 0 {
+		return "", false
+	}
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return "", false
+	}
+
+	if projectType := directProjectType(entries); projectType != "" {
+		return projectType, true
+	}
+
+	childDirs := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		lower := strings.ToLower(name)
+		if lower == ".git" || strings.HasPrefix(name, ".") || s.isIgnoredDir(lower) {
+			continue
+		}
+
+		childDirs = append(childDirs, filepath.Join(dirPath, name))
+	}
+
+	if len(childDirs) == 1 {
+		return s.detectNestedProjectType(childDirs[0], remainingDepth-1)
+	}
+
+	if len(childDirs) < 2 {
+		return "", false
+	}
+
+	return s.detectConsistentChildProjectType(childDirs, remainingDepth-1)
+}
+
+func (s *Scanner) detectConsistentChildProjectType(childDirs []string, remainingDepth int) (string, bool) {
+	if remainingDepth <= 0 {
+		return "", false
+	}
+
+	projectType := ""
+	matchCount := 0
+
+	for _, childDir := range childDirs {
+		childType, ok := s.detectNestedProjectType(childDir, remainingDepth)
+		if !ok {
+			continue
+		}
+		if projectType == "" {
+			projectType = childType
+		} else if childType != projectType {
+			return "", false
+		}
+		matchCount++
+	}
+
+	if projectType == "" || matchCount < 2 {
+		return "", false
+	}
+
+	return projectType, true
+}
+
+func directProjectType(entries []os.DirEntry) string {
+	projectType := ""
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		lower := strings.ToLower(entry.Name())
+		switch {
+		case lower == "go.mod":
+			return "Go"
+		case lower == "package.json" && projectType == "":
+			projectType = "Node"
+		case lower == "cargo.toml" && projectType == "":
+			projectType = "Rust"
+		case (lower == "pyproject.toml" || lower == "requirements.txt") && projectType == "":
+			projectType = "Python"
+		case (strings.HasSuffix(lower, ".sln") || strings.HasSuffix(lower, ".slnx") || strings.HasSuffix(lower, ".csproj")) && projectType == "":
+			projectType = ".NET"
+		}
+	}
+
+	return projectType
+}
+
+func (s *Scanner) isIgnoredDir(name string) bool {
+	if s.config == nil {
+		return false
+	}
+
+	for _, ignored := range s.config.IgnoredDirs {
+		if strings.EqualFold(name, ignored) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // resolveGitBranch quickly inspects .git/HEAD or falls back to git command.
 func (s *Scanner) resolveGitBranch(dirPath string) string {
 	headPath := filepath.Join(dirPath, ".git", "HEAD")
@@ -195,7 +323,6 @@ func (s *Scanner) resolveGitBranch(dirPath string) string {
 		}
 	}
 
-	// Fallback to git CLI if available
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
@@ -206,4 +333,11 @@ func (s *Scanner) resolveGitBranch(dirPath string) string {
 	}
 
 	return ""
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
