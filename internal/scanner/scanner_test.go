@@ -12,6 +12,7 @@ import (
 func TestScanner(t *testing.T) {
 	root := t.TempDir()
 
+	// 1. Create a Go project
 	goDir := filepath.Join(root, "my-go-app")
 	if err := os.MkdirAll(goDir, 0755); err != nil {
 		t.Fatal(err)
@@ -20,6 +21,7 @@ func TestScanner(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// 2. Create a Node project with mock .git
 	nodeDir := filepath.Join(root, "my-node-app")
 	if err := os.MkdirAll(filepath.Join(nodeDir, ".git"), 0755); err != nil {
 		t.Fatal(err)
@@ -31,6 +33,7 @@ func TestScanner(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// 3. Create an ignored directory
 	vendorDir := filepath.Join(root, "vendor", "ignore-me")
 	if err := os.MkdirAll(vendorDir, 0755); err != nil {
 		t.Fatal(err)

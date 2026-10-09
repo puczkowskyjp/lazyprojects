@@ -74,11 +74,13 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 
 			name := d.Name()
 
+			// Skip ignored directory names.
 			if d.IsDir() {
 				if ignoredMap[strings.ToLower(name)] {
 					return filepath.SkipDir
 				}
 
+				// Check depth relative to search root.
 				rel, err := filepath.Rel(cleanRoot, currentPath)
 				if err == nil && rel != "." {
 					depth := len(strings.Split(rel, string(filepath.Separator)))
@@ -90,6 +92,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 				return nil
 			}
 
+			// Do not process searchRoot itself as a project unless marked directly.
 			if cleanRoot == currentPath {
 				return nil
 			}
@@ -101,6 +104,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 					seenPaths[proj.Path] = true
 					projects = append(projects, proj)
 				}
+				// Stop descending into the project directory.
 				return filepath.SkipDir
 			}
 
@@ -112,6 +116,7 @@ func (s *Scanner) Scan(ctx context.Context) ([]model.Project, error) {
 		}
 	}
 
+	// Sort projects by LastModified descending.
 	sort.Slice(projects, func(i, j int) bool {
 		return projects[i].LastModified.After(projects[j].LastModified)
 	})
@@ -323,6 +328,7 @@ func (s *Scanner) resolveGitBranch(dirPath string) string {
 		}
 	}
 
+	// Fallback to git CLI if available.
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
