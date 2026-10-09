@@ -271,7 +271,10 @@ func (u *UI) renderProjects(g *gocui.Gui) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	for i, p := range u.filtered {
+	_, height := v.Size()
+	start, end := visibleRange(len(u.filtered), u.selectedIndex, height)
+	for i := start; i < end; i++ {
+		p := u.filtered[i]
 		cursor := "  "
 		if i == u.selectedIndex {
 			cursor = "▶ "
