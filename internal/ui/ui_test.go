@@ -103,6 +103,10 @@ func TestFavoritesBrowsingUsesDiscoveredFilteredProjects(t *testing.T) {
 	if project, ok := ui.currentProjectLocked(); !ok || project.Name != "one" {
 		t.Fatalf("current favorite = (%q, %t), want (one, true)", project.Name, ok)
 	}
+	ui.cursorDown(nil, nil)
+	if project, ok := ui.currentProjectLocked(); !ok || project.Name != "two" {
+		t.Fatalf("current favorite after navigation = (%q, %t), want (two, true)", project.Name, ok)
+	}
 
 	ui.updateSearchQuery("two")
 	if len(ui.favorites) != 1 || ui.favorites[0].Name != "two" {

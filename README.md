@@ -50,11 +50,13 @@ Set `recent_projects_limit` to retain between 5 and 10 recently opened projects;
 
 | Key                     | Action                                                   |
 | ----------------------- | -------------------------------------------------------- |
-| `[` / `]`               | Switch between filter, recent projects, all projects, and favorites |
+| `[` / `]`               | Focus the filter, Recently Opened, Projects, or Favorites |
 | `j` / `k` or arrow keys | Move within the selected project list                    |
 | `Enter` / `o`           | Open the selected project                                |
 | `f`                     | Add or remove the selected project from favorites        |
 | `/`                     | Focus the filter                                         |
+
+Recently Opened, Favorites, and Projects are shown in separate panes. The Favorites pane stays visible while browsing.
 
 
 ## Configuration Example
