@@ -31,8 +31,8 @@ type section int
 const (
 	sectionSearch section = iota
 	sectionRecent
-	sectionProjects
 	sectionFavorites
+	sectionProjects
 	sectionCount
 )
 
@@ -328,7 +328,7 @@ func (u *UI) renderProjects(g *gocui.Gui) {
 		}
 		favoriteMarker := "  "
 		if u.isFavoriteLocked(p.Path) {
-			favoriteMarker = colorize("★ ", "33")
+			favoriteMarker = favoriteStarMarker()
 		}
 		typeLabel := colorize(fmt.Sprintf("[%-4s]", p.Type), "1", "36")
 		line := fmt.Sprintf("%s%s%-20s %s", cursor, favoriteMarker, truncate(p.Name, 20), typeLabel)
@@ -365,8 +365,12 @@ func (u *UI) renderFavorites(g *gocui.Gui) {
 		if i == u.selectedFavoriteIndex {
 			cursor = "▶ "
 		}
-		fmt.Fprintf(v, "%s★ %s\n", cursor, truncate(project.Name, 18))
+		fmt.Fprintf(v, "%s%s%s\n", cursor, favoriteStarMarker(), truncate(project.Name, 18))
 	}
+}
+
+func favoriteStarMarker() string {
+	return colorize("★ ", "33")
 }
 
 func (u *UI) isFavoriteLocked(projectPath string) bool {
@@ -405,7 +409,7 @@ func (u *UI) renderRecent(g *gocui.Gui) {
 		}
 		favoriteMarker := "  "
 		if u.isFavoriteLocked(project.Path) {
-			favoriteMarker = colorize("★ ", "33")
+			favoriteMarker = favoriteStarMarker()
 		}
 		fmt.Fprintf(v, "%s%s%s\n", cursor, favoriteMarker, truncate(project.Name, 28))
 	}

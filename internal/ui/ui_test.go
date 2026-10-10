@@ -114,6 +114,35 @@ func TestFavoritesBrowsingUsesDiscoveredFilteredProjects(t *testing.T) {
 	}
 }
 
+func TestSectionNavigationFollowsVisiblePaneOrder(t *testing.T) {
+	ui := &UI{activeSection: sectionSearch}
+	want := []section{sectionRecent, sectionFavorites, sectionProjects, sectionSearch}
+	for _, section := range want {
+		if err := ui.nextSection(nil, nil); err != nil {
+			t.Fatalf("nextSection failed: %v", err)
+		}
+		if ui.activeSection != section {
+			t.Fatalf("next section = %v, want %v", ui.activeSection, section)
+		}
+	}
+
+	wantPrevious := []section{sectionProjects, sectionFavorites, sectionRecent, sectionSearch}
+	for _, section := range wantPrevious {
+		if err := ui.previousSection(nil, nil); err != nil {
+			t.Fatalf("previousSection failed: %v", err)
+		}
+		if ui.activeSection != section {
+			t.Fatalf("previous section = %v, want %v", ui.activeSection, section)
+		}
+	}
+}
+
+func TestFavoriteStarMarkerMatchesAcrossViews(t *testing.T) {
+	if got, want := favoriteStarMarker(), "\x1b[33m★ \x1b[0m"; got != want {
+		t.Fatalf("favoriteStarMarker() = %q, want %q", got, want)
+	}
+}
+
 func TestToggleFavoriteFromProjectListPersists(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
