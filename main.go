@@ -63,7 +63,7 @@ func main() {
 		return
 	}
 
-	appUI := ui.New(cfg)
+	appUI := ui.New(cfg, version)
 	if err := appUI.Run(); err != nil {
 		log.Fatalf("TUI error: %v", err)
 	}

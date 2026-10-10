@@ -2,6 +2,8 @@ package scanner
 
 import (
 	"context"
+	"github.com/puczkowskyjp/lazyprojects/internal/config"
+	"github.com/puczkowskyjp/lazyprojects/internal/model"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -9,8 +11,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"github.com/puczkowskyjp/lazyprojects/internal/config"
-	"github.com/puczkowskyjp/lazyprojects/internal/model"
 )
 
 // Scanner handles discovery of projects across configured search paths.
