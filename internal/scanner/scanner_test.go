@@ -73,3 +73,231 @@ func TestScanner(t *testing.T) {
 		t.Errorf("expected my-node-app to be Node, got %q", names["my-node-app"])
 	}
 }
+
+func TestScannerDetectsSearchRootDotNetSolutionOnce(t *testing.T) {
+	root := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(root, "MyDotNetProject.sln"), []byte("Microsoft Visual Studio Solution File"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	subprojects := []string{"Api", "Domain", "ClientApp"}
+	for _, name := range subprojects {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+".csproj"), []byte("<Project Sdk=\"Microsoft.NET.Sdk\"></Project>"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cfg := &config.Config{
+		SearchPaths: []string{root},
+		MaxDepth:    3,
+		IgnoredDirs: []string{"vendor", "node_modules"},
+	}
+
+	s := New(cfg)
+	projects, err := s.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan returned unexpected error: %v", err)
+	}
+
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project, got %d: %+v", len(projects), projects)
+	}
+
+	if projects[0].Name != filepath.Base(root) {
+		t.Fatalf("expected project name %q, got %q", filepath.Base(root), projects[0].Name)
+	}
+	if projects[0].Type != ".NET" {
+		t.Fatalf("expected project type .NET, got %q", projects[0].Type)
+	}
+}
+
+func TestScannerDetectsSearchRootDotNetSlnxSolutionOnce(t *testing.T) {
+	root := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(root, "MyDotNetProject.slnx"), []byte("<Solution/>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	subprojects := []string{"Api", "Domain", "ClientApp"}
+	for _, name := range subprojects {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+".csproj"), []byte("<Project Sdk=\"Microsoft.NET.Sdk\"></Project>"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cfg := &config.Config{
+		SearchPaths: []string{root},
+		MaxDepth:    3,
+		IgnoredDirs: []string{"vendor", "node_modules"},
+	}
+
+	s := New(cfg)
+	projects, err := s.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan returned unexpected error: %v", err)
+	}
+
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project, got %d: %+v", len(projects), projects)
+	}
+
+	if projects[0].Name != filepath.Base(root) {
+		t.Fatalf("expected project name %q, got %q", filepath.Base(root), projects[0].Name)
+	}
+	if projects[0].Type != ".NET" {
+		t.Fatalf("expected project type .NET, got %q", projects[0].Type)
+	}
+}
+
+func TestScannerDetectsNestedProjectTypeForWrapperDirectory(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "ProjectA")
+
+	if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	webAppDir := filepath.Join(projectDir, "ProjectA", "WebApp")
+	if err := os.MkdirAll(webAppDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webAppDir, "package.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		SearchPaths: []string{root},
+		MaxDepth:    4,
+		IgnoredDirs: []string{"vendor", "node_modules"},
+	}
+
+	s := New(cfg)
+	projects, err := s.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan returned unexpected error: %v", err)
+	}
+
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project, got %d: %+v", len(projects), projects)
+	}
+
+	project := projects[0]
+	if project.Name != "ProjectA" {
+		t.Fatalf("expected project name ProjectA, got %q", project.Name)
+	}
+	if project.Type != "Node" {
+		t.Fatalf("expected project type Node, got %q", project.Type)
+	}
+	if project.Branch != "main" {
+		t.Fatalf("expected branch main, got %q", project.Branch)
+	}
+}
+
+func TestScannerDoesNotMisclassifyWrapperDirectoryWithMultipleChildren(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "ProjectA")
+
+	if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	webAppDir := filepath.Join(projectDir, "ProjectA", "WebApp")
+	if err := os.MkdirAll(webAppDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(webAppDir, "package.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(projectDir, "Docs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		SearchPaths: []string{root},
+		MaxDepth:    4,
+		IgnoredDirs: []string{"vendor", "node_modules"},
+	}
+
+	s := New(cfg)
+	projects, err := s.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan returned unexpected error: %v", err)
+	}
+
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project, got %d: %+v", len(projects), projects)
+	}
+
+	project := projects[0]
+	if project.Name != "ProjectA" {
+		t.Fatalf("expected project name ProjectA, got %q", project.Name)
+	}
+	if project.Type != "Git" {
+		t.Fatalf("expected project type Git when wrapper is ambiguous, got %q", project.Type)
+	}
+}
+
+func TestScannerDetectsWrapperDirectoryWithTwoNodeApps(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "ProjectA")
+
+	if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, dir := range []string{"frontend", "backend"} {
+		appDir := filepath.Join(projectDir, dir)
+		if err := os.MkdirAll(appDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(appDir, "package.json"), []byte("{}"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cfg := &config.Config{
+		SearchPaths: []string{root},
+		MaxDepth:    3,
+		IgnoredDirs: []string{"vendor", "node_modules"},
+	}
+
+	s := New(cfg)
+	projects, err := s.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("Scan returned unexpected error: %v", err)
+	}
+
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 project, got %d: %+v", len(projects), projects)
+	}
+
+	project := projects[0]
+	if project.Name != "ProjectA" {
+		t.Fatalf("expected project name ProjectA, got %q", project.Name)
+	}
+	if project.Type != "Node" {
+		t.Fatalf("expected project type Node, got %q", project.Type)
+	}
+	if project.Branch != "main" {
+		t.Fatalf("expected branch main, got %q", project.Branch)
+	}
+}

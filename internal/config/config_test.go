@@ -42,6 +42,7 @@ func TestSaveAndLoadCustom(t *testing.T) {
 		MaxDepth:            2,
 		IgnoredDirs:         []string{".git", "vendor"},
 		Editor:              "nvim",
+		FavoriteProjects:    []string{filepath.Join(tmpDir, "favorite")},
 		RecentProjectsLimit: MaxRecentProjects,
 	}
 
@@ -71,6 +72,9 @@ func TestSaveAndLoadCustom(t *testing.T) {
 	if loaded.RecentProjectsLimit != MaxRecentProjects {
 		t.Errorf("expected RecentProjectsLimit=%d, got %d", MaxRecentProjects, loaded.RecentProjectsLimit)
 	}
+	if !reflect.DeepEqual(loaded.FavoriteProjects, cfg.FavoriteProjects) {
+		t.Errorf("expected FavoriteProjects=%v, got %v", cfg.FavoriteProjects, loaded.FavoriteProjects)
+	}
 }
 
 func TestRecordRecentProject(t *testing.T) {
@@ -82,6 +86,24 @@ func TestRecordRecentProject(t *testing.T) {
 	want := []string{"three", "six", "five", "four", "two"}
 	if !reflect.DeepEqual(cfg.RecentProjects, want) {
 		t.Errorf("expected RecentProjects=%v, got %v", want, cfg.RecentProjects)
+	}
+}
+
+func TestToggleFavoriteProject(t *testing.T) {
+	cfg := &Config{}
+	if !cfg.ToggleFavoriteProject(filepath.Join("projects", ".", "one")) {
+		t.Fatal("expected project to be added to favorites")
+	}
+	if !cfg.ToggleFavoriteProject("projects/two") {
+		t.Fatal("expected second project to be added to favorites")
+	}
+	if cfg.ToggleFavoriteProject(filepath.Join("projects", "one")) {
+		t.Fatal("expected project to be removed from favorites")
+	}
+
+	want := []string{filepath.Join("projects", "two")}
+	if !reflect.DeepEqual(cfg.FavoriteProjects, want) {
+		t.Fatalf("expected FavoriteProjects=%v, got %v", want, cfg.FavoriteProjects)
 	}
 }
 
@@ -102,6 +124,7 @@ func TestSaveAndLoadJSONRecentProjects(t *testing.T) {
 		Editor:              "nvim",
 		RecentProjectsLimit: 6,
 		RecentProjects:      []string{"older"},
+		FavoriteProjects:    []string{"favorite"},
 	}
 	data, err := json.Marshal(initial)
 	if err != nil {
@@ -135,5 +158,8 @@ func TestSaveAndLoadJSONRecentProjects(t *testing.T) {
 	want := []string{"newer", "older"}
 	if !reflect.DeepEqual(saved.RecentProjects, want) {
 		t.Errorf("expected RecentProjects=%v, got %v", want, saved.RecentProjects)
+	}
+	if !reflect.DeepEqual(saved.FavoriteProjects, initial.FavoriteProjects) {
+		t.Errorf("expected FavoriteProjects=%v, got %v", initial.FavoriteProjects, saved.FavoriteProjects)
 	}
 }

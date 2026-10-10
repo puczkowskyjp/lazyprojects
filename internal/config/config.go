@@ -41,6 +41,7 @@ type Config struct {
 	Editor              string         `json:"editor"`
 	Terminal            TerminalConfig `json:"terminal"`
 	RecentProjects      []string       `json:"recent_projects"`
+	FavoriteProjects    []string       `json:"favorite_projects"`
 	RecentProjectsLimit int            `json:"recent_projects_limit"`
 	format              configFormat
 }
@@ -195,6 +196,9 @@ func loadFromLua(path string) (*Config, error) {
 	if recentProjects := getLuaStringSlice(tbl, "recent_projects"); recentProjects != nil {
 		cfg.RecentProjects = recentProjects
 	}
+	if favoriteProjects := getLuaStringSlice(tbl, "favorite_projects"); favoriteProjects != nil {
+		cfg.FavoriteProjects = favoriteProjects
+	}
 	if recentProjectsLimit := getLuaInt(tbl, "recent_projects_limit"); recentProjectsLimit != 0 {
 		cfg.RecentProjectsLimit = recentProjectsLimit
 	}
@@ -264,6 +268,27 @@ func (c *Config) RecordRecentProject(projectPath string) {
 		recentProjects = recentProjects[:c.RecentProjectsLimit]
 	}
 	c.RecentProjects = recentProjects
+}
+
+// ToggleFavoriteProject adds or removes a project path from the favorites list.
+// It returns true when the project is favorited after the operation.
+func (c *Config) ToggleFavoriteProject(projectPath string) bool {
+	projectPath = filepath.Clean(projectPath)
+	favorites := make([]string, 0, len(c.FavoriteProjects)+1)
+	isFavorite := false
+	for _, path := range c.FavoriteProjects {
+		path = filepath.Clean(path)
+		if path == projectPath {
+			isFavorite = true
+			continue
+		}
+		favorites = append(favorites, path)
+	}
+	if !isFavorite {
+		favorites = append([]string{projectPath}, favorites...)
+	}
+	c.FavoriteProjects = favorites
+	return !isFavorite
 }
 
 func getLuaString(tbl *lua.LTable, key string) string {
@@ -346,6 +371,13 @@ func (c *Config) Save() error {
 	sb.WriteString(fmt.Sprintf("  -- Number of recently opened projects to retain (%d-%d)\n  recent_projects_limit = %d,\n\n", MinRecentProjects, MaxRecentProjects, c.RecentProjectsLimit))
 	sb.WriteString("  -- Managed automatically after a project is opened\n  recent_projects = {\n")
 	for _, p := range c.RecentProjects {
+		escaped := strings.ReplaceAll(p, "\\", "\\\\")
+		sb.WriteString(fmt.Sprintf("    %q,\n", escaped))
+	}
+	sb.WriteString("  },\n\n")
+
+	sb.WriteString("  -- Managed with the favorite toggle in the project list\n  favorite_projects = {\n")
+	for _, p := range c.FavoriteProjects {
 		escaped := strings.ReplaceAll(p, "\\", "\\\\")
 		sb.WriteString(fmt.Sprintf("    %q,\n", escaped))
 	}
