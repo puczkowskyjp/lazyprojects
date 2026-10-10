@@ -1,6 +1,14 @@
 package ui
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	"github.com/puczkowskyjp/lazyprojects/internal/config"
+	"github.com/puczkowskyjp/lazyprojects/internal/model"
+)
 
 func TestVisibleRange(t *testing.T) {
 	tests := []struct {
@@ -68,6 +76,75 @@ func TestVisibleRange(t *testing.T) {
 				t.Fatalf("visibleRange(%d, %d, %d) = (%d, %d), want (%d, %d)", tt.length, tt.selected, tt.height, gotStart, gotEnd, tt.wantStart, tt.wantEnd)
 			}
 		})
+	}
+}
+
+func TestFavoritesBrowsingUsesDiscoveredFilteredProjects(t *testing.T) {
+	onePath := filepath.Join("projects", "one")
+	twoPath := filepath.Join("projects", "two")
+	ui := &UI{
+		config: &config.Config{
+			FavoriteProjects: []string{onePath, filepath.Join("projects", "missing"), twoPath},
+		},
+		projects: []model.Project{
+			{Name: "one", Path: onePath},
+			{Name: "two", Path: twoPath},
+		},
+		activeSection: sectionFavorites,
+	}
+	ui.applyFilterLocked()
+	ui.refreshFavoritesLocked()
+
+	want := []string{"one", "two"}
+	got := []string{ui.favorites[0].Name, ui.favorites[1].Name}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("favorites = %v, want %v", got, want)
+	}
+	if project, ok := ui.currentProjectLocked(); !ok || project.Name != "one" {
+		t.Fatalf("current favorite = (%q, %t), want (one, true)", project.Name, ok)
+	}
+
+	ui.updateSearchQuery("two")
+	if len(ui.favorites) != 1 || ui.favorites[0].Name != "two" {
+		t.Fatalf("filtered favorites = %v, want only project two", ui.favorites)
+	}
+}
+
+func TestToggleFavoriteFromProjectListPersists(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	path := filepath.Join(home, "project")
+	ui := &UI{
+		config: &config.Config{},
+		filtered: []model.Project{
+			{Name: "project", Path: path},
+		},
+	}
+
+	if err := ui.toggleFavorite(nil, nil); err != nil {
+		t.Fatalf("adding favorite: %v", err)
+	}
+	if !reflect.DeepEqual(ui.config.FavoriteProjects, []string{path}) {
+		t.Fatalf("FavoriteProjects after add = %v, want [%s]", ui.config.FavoriteProjects, path)
+	}
+
+	if err := ui.toggleFavorite(nil, nil); err != nil {
+		t.Fatalf("removing favorite: %v", err)
+	}
+	if len(ui.config.FavoriteProjects) != 0 {
+		t.Fatalf("FavoriteProjects after remove = %v, want empty", ui.config.FavoriteProjects)
+	}
+
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatalf("loading persisted config: %v", err)
+	}
+	if len(loaded.FavoriteProjects) != 0 {
+		t.Fatalf("persisted FavoriteProjects = %v, want empty", loaded.FavoriteProjects)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", config.ConfigDirName, config.ConfigLuaFileName)); err != nil {
+		t.Fatalf("favorite config was not saved: %v", err)
 	}
 }
 
