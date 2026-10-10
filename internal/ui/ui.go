@@ -18,11 +18,12 @@ import (
 )
 
 const (
-	ViewProjects = "projects"
-	ViewRecent   = "recent"
-	ViewDetails  = "details"
-	ViewSearch   = "search"
-	ViewStatus   = "status"
+	ViewProjects  = "projects"
+	ViewRecent    = "recent"
+	ViewFavorites = "favorites"
+	ViewDetails   = "details"
+	ViewSearch    = "search"
+	ViewStatus    = "status"
 )
 
 type section int
@@ -30,28 +31,31 @@ type section int
 const (
 	sectionSearch section = iota
 	sectionRecent
+	sectionFavorites
 	sectionProjects
 	sectionCount
 )
 
 // UI manages the terminal interface and application state.
 type UI struct {
-	gui                 *gocui.Gui
-	config              *config.Config
-	scanner             *scanner.Scanner
-	projects            []model.Project
-	filtered            []model.Project
-	recent              []model.Project
-	selectedIndex       int
-	selectedRecentIndex int
-	searchQuery         string
-	activeSection       section
-	statusMsg           string
-	availableEds        []string
-	currentEdIdx        int
-	gitCache            map[string]string
-	loadingGit          map[string]bool
-	mu                  sync.Mutex
+	gui                   *gocui.Gui
+	config                *config.Config
+	scanner               *scanner.Scanner
+	projects              []model.Project
+	filtered              []model.Project
+	recent                []model.Project
+	favorites             []model.Project
+	selectedIndex         int
+	selectedRecentIndex   int
+	selectedFavoriteIndex int
+	searchQuery           string
+	activeSection         section
+	statusMsg             string
+	availableEds          []string
+	currentEdIdx          int
+	gitCache              map[string]string
+	loadingGit            map[string]bool
+	mu                    sync.Mutex
 }
 
 // New creates and initializes a UI instance.
@@ -116,6 +120,7 @@ func (u *UI) refreshProjects() {
 	u.projects = projects
 	u.applyFilterLocked()
 	u.refreshRecentLocked()
+	u.refreshFavoritesLocked()
 	u.statusMsg = fmt.Sprintf("Ready. Found %d projects. Active editor: [%s]", len(u.projects), u.currentEditor())
 }
 
@@ -176,6 +181,33 @@ func (u *UI) refreshRecentLocked() {
 	}
 }
 
+func (u *UI) refreshFavoritesLocked() {
+	projectsByPath := make(map[string]model.Project, len(u.filtered))
+	for _, project := range u.filtered {
+		projectsByPath[filepath.Clean(project.Path)] = project
+	}
+
+	u.favorites = u.favorites[:0]
+	seen := make(map[string]struct{}, len(u.config.FavoriteProjects))
+	for _, path := range u.config.FavoriteProjects {
+		path = filepath.Clean(path)
+		if _, exists := seen[path]; exists {
+			continue
+		}
+		seen[path] = struct{}{}
+		if project, ok := projectsByPath[path]; ok {
+			u.favorites = append(u.favorites, project)
+		}
+	}
+
+	if u.selectedFavoriteIndex >= len(u.favorites) {
+		u.selectedFavoriteIndex = len(u.favorites) - 1
+	}
+	if u.selectedFavoriteIndex < 0 {
+		u.selectedFavoriteIndex = 0
+	}
+}
+
 func (u *UI) layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
 	if maxX < 40 || maxY < 14 {
@@ -205,11 +237,18 @@ func (u *UI) layout(g *gocui.Gui) error {
 	if listWidth < 30 {
 		listWidth = 30
 	}
-	if v, err := g.SetView(ViewRecent, 0, searchHeight, listWidth, searchHeight+recentHeight-1); err != nil {
+	recentWidth := listWidth / 2
+	if v, err := g.SetView(ViewRecent, 0, searchHeight, recentWidth-1, searchHeight+recentHeight-1); err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
 		}
 		v.Title = fmt.Sprintf(" Recently Opened (%d) ", len(u.recent))
+	}
+	if v, err := g.SetView(ViewFavorites, recentWidth, searchHeight, listWidth, searchHeight+recentHeight-1); err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		v.Title = fmt.Sprintf(" Favorites (%d) ", len(u.favorites))
 	}
 	if v, err := g.SetView(ViewProjects, 0, searchHeight+recentHeight, listWidth, maxY-statusHeight-1); err != nil {
 		if err != gocui.ErrUnknownView {
@@ -237,6 +276,7 @@ func (u *UI) layout(g *gocui.Gui) error {
 
 	u.renderProjects(g)
 	u.renderRecent(g)
+	u.renderFavorites(g)
 	u.renderDetails(g)
 	u.renderStatus(g)
 
@@ -248,6 +288,11 @@ func (u *UI) layout(g *gocui.Gui) error {
 		g.Cursor = true
 	case sectionRecent:
 		if _, err := g.SetCurrentView(ViewRecent); err != nil {
+			return err
+		}
+		g.Cursor = false
+	case sectionFavorites:
+		if _, err := g.SetCurrentView(ViewFavorites); err != nil {
 			return err
 		}
 		g.Cursor = false
@@ -267,10 +312,11 @@ func (u *UI) renderProjects(g *gocui.Gui) {
 		return
 	}
 	v.Clear()
-	v.Title = fmt.Sprintf(" Projects (%d) ", len(u.filtered))
 
 	u.mu.Lock()
 	defer u.mu.Unlock()
+
+	v.Title = fmt.Sprintf(" Projects (%d) ", len(u.filtered))
 
 	_, height := v.Size()
 	start, end := visibleRange(len(u.filtered), u.selectedIndex, height)
@@ -280,8 +326,12 @@ func (u *UI) renderProjects(g *gocui.Gui) {
 		if i == u.selectedIndex {
 			cursor = "▶ "
 		}
+		favoriteMarker := "  "
+		if u.isFavoriteLocked(p.Path) {
+			favoriteMarker = favoriteStarMarker()
+		}
 		typeLabel := colorize(fmt.Sprintf("[%-4s]", p.Type), "1", "36")
-		line := fmt.Sprintf("%s%-20s %s", cursor, truncate(p.Name, 20), typeLabel)
+		line := fmt.Sprintf("%s%s%-20s %s", cursor, favoriteMarker, truncate(p.Name, 20), typeLabel)
 
 		if p.Branch != "" {
 			line += colorize(fmt.Sprintf(" (%s)", p.Branch), "33")
@@ -289,6 +339,48 @@ func (u *UI) renderProjects(g *gocui.Gui) {
 
 		fmt.Fprintln(v, line)
 	}
+}
+
+func (u *UI) renderFavorites(g *gocui.Gui) {
+	v, err := g.View(ViewFavorites)
+	if err != nil {
+		return
+	}
+	v.Clear()
+
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	v.Title = fmt.Sprintf(" Favorites (%d) ", len(u.favorites))
+
+	if len(u.favorites) == 0 {
+		fmt.Fprintln(v, "No favorites.")
+		return
+	}
+
+	_, height := v.Size()
+	start, end := visibleRange(len(u.favorites), u.selectedFavoriteIndex, height)
+	for i := start; i < end; i++ {
+		project := u.favorites[i]
+		cursor := "  "
+		if i == u.selectedFavoriteIndex {
+			cursor = "▶ "
+		}
+		fmt.Fprintf(v, "%s%s%s\n", cursor, favoriteStarMarker(), truncate(project.Name, 18))
+	}
+}
+
+func favoriteStarMarker() string {
+	return colorize("★ ", "33")
+}
+
+func (u *UI) isFavoriteLocked(projectPath string) bool {
+	projectPath = filepath.Clean(projectPath)
+	for _, path := range u.config.FavoriteProjects {
+		if filepath.Clean(path) == projectPath {
+			return true
+		}
+	}
+	return false
 }
 
 func (u *UI) renderRecent(g *gocui.Gui) {
@@ -315,7 +407,11 @@ func (u *UI) renderRecent(g *gocui.Gui) {
 		if i == u.selectedRecentIndex {
 			cursor = "▶ "
 		}
-		fmt.Fprintf(v, "%s%s\n", cursor, truncate(project.Name, 28))
+		favoriteMarker := "  "
+		if u.isFavoriteLocked(project.Path) {
+			favoriteMarker = favoriteStarMarker()
+		}
+		fmt.Fprintf(v, "%s%s%s\n", cursor, favoriteMarker, truncate(project.Name, 28))
 	}
 }
 
@@ -436,6 +532,12 @@ func (u *UI) currentProjectLocked() (model.Project, bool) {
 		}
 		return model.Project{}, false
 	}
+	if u.activeSection == sectionFavorites {
+		if u.selectedFavoriteIndex >= 0 && u.selectedFavoriteIndex < len(u.favorites) {
+			return u.favorites[u.selectedFavoriteIndex], true
+		}
+		return model.Project{}, false
+	}
 	if u.selectedIndex >= 0 && u.selectedIndex < len(u.filtered) {
 		return u.filtered[u.selectedIndex], true
 	}
@@ -465,7 +567,7 @@ func (u *UI) renderStatus(g *gocui.Gui) {
 	ed := u.currentEditor()
 	u.mu.Unlock()
 
-	keys := fmt.Sprintf("[ or ] Switch section | [j/k or ↑/↓] Move | [Enter/o] Open (%s) | [/] Filter | [e] Switch Editor | [r] Rescan | [q] Quit", ed)
+	keys := fmt.Sprintf("[ or ] Switch section | [j/k or ↑/↓] Move | [Enter/o] Open (%s) | [f] Favorite | [/] Filter | [e] Switch Editor | [r] Rescan | [q] Quit", ed)
 	fmt.Fprintf(v, "• %s\n• %s", msg, keys)
 }
 
@@ -487,7 +589,7 @@ func (u *UI) setKeybindings() error {
 	navKeys := []interface{}{
 		gocui.KeyArrowDown, 'j',
 	}
-	for _, view := range []string{ViewProjects, ViewRecent} {
+	for _, view := range []string{ViewProjects, ViewRecent, ViewFavorites} {
 		for _, k := range navKeys {
 			if err := u.gui.SetKeybinding(view, k, gocui.ModNone, u.cursorDown); err != nil {
 				return err
@@ -498,7 +600,7 @@ func (u *UI) setKeybindings() error {
 	upKeys := []interface{}{
 		gocui.KeyArrowUp, 'k',
 	}
-	for _, view := range []string{ViewProjects, ViewRecent} {
+	for _, view := range []string{ViewProjects, ViewRecent, ViewFavorites} {
 		for _, k := range upKeys {
 			if err := u.gui.SetKeybinding(view, k, gocui.ModNone, u.cursorUp); err != nil {
 				return err
@@ -506,11 +608,17 @@ func (u *UI) setKeybindings() error {
 		}
 	}
 
+	for _, view := range []string{ViewProjects, ViewRecent, ViewFavorites} {
+		if err := u.gui.SetKeybinding(view, 'f', gocui.ModNone, u.toggleFavorite); err != nil {
+			return err
+		}
+	}
+
 	// Open Project
 	openKeys := []interface{}{
 		gocui.KeyEnter, 'o',
 	}
-	for _, view := range []string{ViewProjects, ViewRecent} {
+	for _, view := range []string{ViewProjects, ViewRecent, ViewFavorites} {
 		for _, k := range openKeys {
 			if err := u.gui.SetKeybinding(view, k, gocui.ModNone, u.openProject); err != nil {
 				return err
@@ -519,28 +627,28 @@ func (u *UI) setKeybindings() error {
 	}
 
 	// Start Search
-	for _, view := range []string{ViewProjects, ViewRecent} {
+	for _, view := range []string{ViewProjects, ViewRecent, ViewFavorites} {
 		if err := u.gui.SetKeybinding(view, '/', gocui.ModNone, u.startSearch); err != nil {
 			return err
 		}
 	}
 
 	// Rescan
-	for _, view := range []string{ViewProjects, ViewRecent} {
+	for _, view := range []string{ViewProjects, ViewRecent, ViewFavorites} {
 		if err := u.gui.SetKeybinding(view, 'r', gocui.ModNone, u.rescan); err != nil {
 			return err
 		}
 	}
 
 	// Switch Editor
-	for _, view := range []string{ViewProjects, ViewRecent} {
+	for _, view := range []string{ViewProjects, ViewRecent, ViewFavorites} {
 		if err := u.gui.SetKeybinding(view, 'e', gocui.ModNone, u.cycleEditor); err != nil {
 			return err
 		}
 	}
 
 	// Quit with q
-	for _, view := range []string{ViewProjects, ViewRecent} {
+	for _, view := range []string{ViewProjects, ViewRecent, ViewFavorites} {
 		if err := u.gui.SetKeybinding(view, 'q', gocui.ModNone, u.quit); err != nil {
 			return err
 		}
@@ -561,6 +669,8 @@ func (u *UI) cursorDown(g *gocui.Gui, v *gocui.View) error {
 	u.mu.Lock()
 	if u.activeSection == sectionRecent && u.selectedRecentIndex < len(u.recent)-1 {
 		u.selectedRecentIndex++
+	} else if u.activeSection == sectionFavorites && u.selectedFavoriteIndex < len(u.favorites)-1 {
+		u.selectedFavoriteIndex++
 	} else if u.activeSection == sectionProjects && u.selectedIndex < len(u.filtered)-1 {
 		u.selectedIndex++
 	}
@@ -572,8 +682,31 @@ func (u *UI) cursorUp(g *gocui.Gui, v *gocui.View) error {
 	u.mu.Lock()
 	if u.activeSection == sectionRecent && u.selectedRecentIndex > 0 {
 		u.selectedRecentIndex--
+	} else if u.activeSection == sectionFavorites && u.selectedFavoriteIndex > 0 {
+		u.selectedFavoriteIndex--
 	} else if u.activeSection == sectionProjects && u.selectedIndex > 0 {
 		u.selectedIndex--
+	}
+	u.mu.Unlock()
+	return nil
+}
+
+func (u *UI) toggleFavorite(g *gocui.Gui, v *gocui.View) error {
+	u.mu.Lock()
+	project, ok := u.currentProjectLocked()
+	if !ok {
+		u.mu.Unlock()
+		return nil
+	}
+	favorited := u.config.ToggleFavoriteProject(project.Path)
+	u.refreshFavoritesLocked()
+	if favorited {
+		u.statusMsg = fmt.Sprintf("Added %s to favorites", project.Name)
+	} else {
+		u.statusMsg = fmt.Sprintf("Removed %s from favorites", project.Name)
+	}
+	if err := u.config.Save(); err != nil {
+		u.statusMsg = fmt.Sprintf("Updated favorite status, but failed to save: %v", err)
 	}
 	u.mu.Unlock()
 	return nil
@@ -659,6 +792,7 @@ func (u *UI) stopSearch(g *gocui.Gui, v *gocui.View) error {
 	u.activeSection = sectionProjects
 	u.searchQuery = ""
 	u.applyFilterLocked()
+	u.refreshFavoritesLocked()
 	u.statusMsg = "Search cleared. Browsing all projects."
 	u.mu.Unlock()
 
@@ -689,6 +823,7 @@ func (u *UI) updateSearchQuery(query string) {
 
 	u.searchQuery = strings.TrimSpace(query)
 	u.applyFilterLocked()
+	u.refreshFavoritesLocked()
 	u.statusMsg = fmt.Sprintf("Filter: %q (%d matches)", u.searchQuery, len(u.filtered))
 }
 

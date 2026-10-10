@@ -12,6 +12,7 @@ Git metadata such as the current branch and recent commits is also available whi
 * Discover projects across configurable directories
 * Quickly search and filter projects
 * Track recently opened projects
+* Favorite projects for quick access
 * Open projects with your preferred editor and terminal
 * View Git metadata at a glance
 * Configure with Lua or JSON
@@ -49,10 +50,13 @@ Set `recent_projects_limit` to retain between 5 and 10 recently opened projects;
 
 | Key                     | Action                                                   |
 | ----------------------- | -------------------------------------------------------- |
-| `[` / `]`               | Switch between filter, recent projects, and all projects |
+| `[` / `]`               | Focus the filter, Recently Opened, Favorites, or Projects |
 | `j` / `k` or arrow keys | Move within the selected project list                    |
 | `Enter` / `o`           | Open the selected project                                |
+| `f`                     | Add or remove the selected project from favorites        |
 | `/`                     | Focus the filter                                         |
+
+Recently Opened, Favorites, and Projects are shown in separate panes. The Favorites pane stays visible while browsing.
 
 
 ## Configuration Example
