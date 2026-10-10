@@ -55,11 +55,12 @@ type UI struct {
 	currentEdIdx          int
 	gitCache              map[string]string
 	loadingGit            map[string]bool
+	Version               string
 	mu                    sync.Mutex
 }
 
 // New creates and initializes a UI instance.
-func New(cfg *config.Config) *UI {
+func New(cfg *config.Config, version string) *UI {
 	available := editor.DetectAvailable()
 	edIdx := 0
 	for i, ed := range available {
@@ -78,6 +79,7 @@ func New(cfg *config.Config) *UI {
 		gitCache:      make(map[string]string),
 		loadingGit:    make(map[string]bool),
 		statusMsg:     "Ready. Use ↑/↓ or j/k to browse, Enter to open.",
+		Version:       version,
 	}
 }
 
@@ -565,10 +567,47 @@ func (u *UI) renderStatus(g *gocui.Gui) {
 	u.mu.Lock()
 	msg := u.statusMsg
 	ed := u.currentEditor()
+	ver := u.Version
 	u.mu.Unlock()
 
+	// include favorite key in help keys and render version at lower-right
 	keys := fmt.Sprintf("[ or ] Switch section | [j/k or ↑/↓] Move | [Enter/o] Open (%s) | [f] Favorite | [/] Filter | [e] Switch Editor | [r] Rescan | [q] Quit", ed)
-	fmt.Fprintf(v, "• %s\n• %s", msg, keys)
+
+	w, h := v.Size()
+	lines := []string{fmt.Sprintf("• %s", msg), fmt.Sprintf("• %s", keys)}
+	// Reserve last line for version at lower-right
+	contentMax := h - 1
+	if contentMax < 1 {
+		contentMax = 1
+	}
+	// If there are more content lines than fit, keep the last contentMax
+	if len(lines) > contentMax {
+		lines = lines[len(lines)-contentMax:]
+	}
+	filler := contentMax - len(lines)
+	for i := 0; i < filler; i++ {
+		lines = append(lines, "")
+	}
+
+	verText := ver
+	if verText == "" {
+		verText = "development"
+	}
+	// Trim if longer than width, keep rightmost chars
+	if len(verText) > w {
+		verText = verText[len(verText)-w:]
+	}
+	pad := w - len(verText)
+	if pad < 0 {
+		pad = 0
+	}
+	lastLine := fmt.Sprintf("%s%s", strings.Repeat(" ", pad), verText)
+	// Print content lines then the final version line, ensuring total printed lines == contentMax + 1
+	for i := range lines {
+		fmt.Fprintln(v, lines[i])
+	}
+	// write the final line without adding an extra newline to keep it at the bottom
+	fmt.Fprint(v, lastLine)
 }
 
 func (u *UI) setKeybindings() error {
