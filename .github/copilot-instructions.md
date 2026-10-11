@@ -20,7 +20,7 @@
 
 - **Entry Point (`main.go`)**: Parses CLI flags (`-list`, `-open`), initializes configuration, and triggers project discovery or TUI event loop.
 - **`internal/`**:
-  - **`config/`**: Manages configuration loaded from `~/.config/lazyprojects/config.lua` (with JSON fallback) via embedded `gopher-lua`. Configures `search_paths`, `max_depth`, `ignored_dirs`, `editor`, and `terminal` (`app` and `target` for tab vs window).
+  - **`config/`**: Manages configuration loaded from `~/.config/lazyprojects/config.lua` via embedded `gopher-lua`. Configures `search_paths`, `max_depth`, `ignored_dirs`, `editor`, and `terminal` (`app` and `target` for tab vs window).
   - **`scanner/`**: Traverses search paths up to `MaxDepth`, detecting project markers (Go, Node, Rust, Python, .NET, Git), resolving git branches from `.git/HEAD`, and sorting projects by last modified.
   - **`editor/`**: Probes available editors (`code`, `nvim`, `notepad`, `$EDITOR`) and launches them for a selected project path. For terminal editors (`nvim`), delegates to configured terminal emulator (`wt`, `wezterm`, `cmd`) in a new tab or window.
   - **`model/`**: Shared domain models (`Project`).

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,38 +12,29 @@ import (
 const (
 	ConfigDirName         = "lazyprojects"
 	ConfigLuaFileName     = "config.lua"
-	ConfigJSONFileName    = "config.json"
 	DefaultMaxDepth       = 4
 	MinRecentProjects     = 5
 	MaxRecentProjects     = 10
 	DefaultRecentProjects = 8
 )
 
-type configFormat int
-
-const (
-	configFormatLua configFormat = iota
-	configFormatJSON
-)
-
 // TerminalConfig configures how terminal-based editors are launched.
 type TerminalConfig struct {
-	App    string `json:"app"`    // e.g. "wt" (Windows Terminal), "wezterm", "cmd"
-	Target string `json:"target"` // "tab" (new tab in active window) or "window" (new window)
+	App    string
+	Target string
 }
 
 // Config holds user configuration for lazyprojects.
 type Config struct {
-	SearchPaths         []string       `json:"search_paths"`
-	MaxDepth            int            `json:"max_depth"`
-	IgnoredDirs         []string       `json:"ignored_dirs"`
-	Editor              string         `json:"editor"`
-	AvailableEditors    []string       `json:"available_editors,omitempty"`
-	Terminal            TerminalConfig `json:"terminal"`
-	RecentProjects      []string       `json:"recent_projects"`
-	FavoriteProjects    []string       `json:"favorite_projects"`
-	RecentProjectsLimit int            `json:"recent_projects_limit"`
-	format              configFormat
+	SearchPaths         []string
+	MaxDepth            int
+	IgnoredDirs         []string
+	Editor              string
+	AvailableEditors    []string
+	Terminal            TerminalConfig
+	RecentProjects      []string
+	FavoriteProjects    []string
+	RecentProjectsLimit int
 }
 
 // DefaultIgnoredDirs returns a standard slice of directory names to skip.
@@ -114,8 +104,8 @@ func DefaultConfig() (*Config, error) {
 	}, nil
 }
 
-// Load loads the configuration from ~/.config/lazyprojects/config.lua (falling back to config.json).
-// If neither exists, a default config.lua is generated and saved.
+// Load loads the configuration from ~/.config/lazyprojects/config.lua.
+// If it does not exist, a default config.lua is generated and saved.
 func Load() (*Config, error) {
 	luaPath, err := GetLuaConfigFilePath()
 	if err != nil {
@@ -124,13 +114,6 @@ func Load() (*Config, error) {
 
 	if _, err := os.Stat(luaPath); err == nil {
 		return loadFromLua(luaPath)
-	}
-
-	// Check legacy JSON config fallback
-	dir, _ := GetConfigDir()
-	jsonPath := filepath.Join(dir, ConfigJSONFileName)
-	if _, err := os.Stat(jsonPath); err == nil {
-		return loadFromJSON(jsonPath)
 	}
 
 	// Generate default config.lua
@@ -207,34 +190,7 @@ func loadFromLua(path string) (*Config, error) {
 		cfg.RecentProjectsLimit = recentProjectsLimit
 	}
 	cfg.RecentProjectsLimit = normalizeRecentProjectsLimit(cfg.RecentProjectsLimit)
-	cfg.format = configFormatLua
 
-	return &cfg, nil
-}
-
-func loadFromJSON(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	if cfg.MaxDepth <= 0 {
-		cfg.MaxDepth = DefaultMaxDepth
-	}
-	if len(cfg.IgnoredDirs) == 0 {
-		cfg.IgnoredDirs = DefaultIgnoredDirs()
-	}
-	if cfg.Terminal.App == "" {
-		cfg.Terminal.App = "wt"
-	}
-	if cfg.Terminal.Target == "" {
-		cfg.Terminal.Target = "tab"
-	}
-	cfg.RecentProjectsLimit = normalizeRecentProjectsLimit(cfg.RecentProjectsLimit)
-	cfg.format = configFormatJSON
 	return &cfg, nil
 }
 
@@ -328,10 +284,6 @@ func getLuaStringSlice(tbl *lua.LTable, key string) []string {
 
 // Save writes the configuration to ~/.config/lazyprojects/config.lua.
 func (c *Config) Save() error {
-	if c.format == configFormatJSON {
-		return c.saveJSON()
-	}
-
 	dir, err := GetConfigDir()
 	if err != nil {
 		return err
@@ -406,27 +358,5 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to write lua config file %q: %w", path, err)
 	}
 
-	return nil
-}
-
-func (c *Config) saveJSON() error {
-	dir, err := GetConfigDir()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory %q: %w", dir, err)
-	}
-
-	c.RecentProjectsLimit = normalizeRecentProjectsLimit(c.RecentProjectsLimit)
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON config: %w", err)
-	}
-
-	path := filepath.Join(dir, ConfigJSONFileName)
-	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
-		return fmt.Errorf("failed to write JSON config file %q: %w", path, err)
-	}
 	return nil
 }

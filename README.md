@@ -15,7 +15,7 @@ Git metadata such as the current branch and recent commits is also available whi
 * Favorite projects for quick access
 * Open projects with your preferred editor and terminal
 * View Git metadata at a glance
-* Configure with Lua or JSON
+* Configure with Lua
 
 
 ## Installation
@@ -39,9 +39,7 @@ lazyprojects
 
 On first launch, the application writes `~/.config/lazyprojects/config.lua`.
 
-JSON is also supported at `~/.config/lazyprojects/config.json` when no Lua configuration exists.
-
-Use [`config.example.lua`](config.example.lua) or [`config.example.json`](config.example.json) as a starting point.
+Use [`config.example.lua`](config.example.lua) as a starting point.
 
 Set `recent_projects_limit` to retain between 5 and 10 recently opened projects; the default is 8. The application maintains the newest-first `recent_projects` list automatically after each successful project launch.
 
