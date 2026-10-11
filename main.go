@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime/debug"
 
 	"github.com/puczkowskyjp/lazyprojects/internal/config"
 	"github.com/puczkowskyjp/lazyprojects/internal/editor"
@@ -15,11 +16,22 @@ import (
 
 var version = "development"
 
+func resolveVersion() string {
+	if version != "development" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return version
+}
+
 func main() {
 	versionFlag := flag.Bool("version", false, "Print lazyprojects version and exit")
 	listFlag := flag.Bool("list", false, "List discovered projects and exit")
 	openFlag := flag.String("open", "", "Open a specific project by exact path")
 	flag.Parse()
+	version = resolveVersion()
 
 	if *versionFlag {
 		fmt.Printf("lazyprojects %s\n", version)
