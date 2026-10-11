@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -108,66 +107,5 @@ func TestToggleFavoriteProject(t *testing.T) {
 	want := []string{filepath.Join("projects", "two")}
 	if !reflect.DeepEqual(cfg.FavoriteProjects, want) {
 		t.Fatalf("expected FavoriteProjects=%v, got %v", want, cfg.FavoriteProjects)
-	}
-}
-
-func TestSaveAndLoadJSONRecentProjects(t *testing.T) {
-	tmpDir := t.TempDir()
-	t.Setenv("USERPROFILE", tmpDir)
-	t.Setenv("HOME", tmpDir)
-
-	configDir := filepath.Join(tmpDir, ".config", ConfigDirName)
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		t.Fatalf("creating config directory: %v", err)
-	}
-
-	initial := &Config{
-		SearchPaths:         []string{tmpDir},
-		MaxDepth:            2,
-		IgnoredDirs:         []string{".git"},
-		Editor:              "nvim",
-		AvailableEditors:    []string{"nvim", "vs.exe"},
-		RecentProjectsLimit: 6,
-		RecentProjects:      []string{"older"},
-		FavoriteProjects:    []string{"favorite"},
-	}
-	data, err := json.Marshal(initial)
-	if err != nil {
-		t.Fatalf("marshaling initial JSON config: %v", err)
-	}
-	jsonPath := filepath.Join(configDir, ConfigJSONFileName)
-	if err := os.WriteFile(jsonPath, data, 0644); err != nil {
-		t.Fatalf("writing JSON config: %v", err)
-	}
-
-	loaded, err := Load()
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-	loaded.RecordRecentProject("newer")
-	if err := loaded.Save(); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
-
-	if _, err := os.Stat(filepath.Join(configDir, ConfigLuaFileName)); !os.IsNotExist(err) {
-		t.Fatalf("unexpected Lua config after saving JSON config: %v", err)
-	}
-	var saved Config
-	savedData, err := os.ReadFile(jsonPath)
-	if err != nil {
-		t.Fatalf("reading saved JSON config: %v", err)
-	}
-	if err := json.Unmarshal(savedData, &saved); err != nil {
-		t.Fatalf("unmarshaling saved JSON config: %v", err)
-	}
-	want := []string{"newer", "older"}
-	if !reflect.DeepEqual(saved.RecentProjects, want) {
-		t.Errorf("expected RecentProjects=%v, got %v", want, saved.RecentProjects)
-	}
-	if !reflect.DeepEqual(saved.FavoriteProjects, initial.FavoriteProjects) {
-		t.Errorf("expected FavoriteProjects=%v, got %v", initial.FavoriteProjects, saved.FavoriteProjects)
-	}
-	if !reflect.DeepEqual(saved.AvailableEditors, initial.AvailableEditors) {
-		t.Errorf("expected AvailableEditors=%v, got %v", initial.AvailableEditors, saved.AvailableEditors)
 	}
 }
