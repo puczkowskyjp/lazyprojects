@@ -20,21 +20,21 @@ const (
 
 // TerminalConfig configures how terminal-based editors are launched.
 type TerminalConfig struct {
-	App    string
-	Target string
+	App    string `json:"app"`    // e.g. "wt" (Windows Terminal), "wezterm", "cmd"
+	Target string `json:"target"` // "tab" (new tab in active window) or "window" (new window)
 }
 
 // Config holds user configuration for lazyprojects.
 type Config struct {
-	SearchPaths         []string
-	MaxDepth            int
-	IgnoredDirs         []string
-	Editor              string
-	AvailableEditors    []string
-	Terminal            TerminalConfig
-	RecentProjects      []string
-	FavoriteProjects    []string
-	RecentProjectsLimit int
+	SearchPaths         []string       `json:"search_paths"`
+	MaxDepth            int            `json:"max_depth"`
+	IgnoredDirs         []string       `json:"ignored_dirs"`
+	Editor              string         `json:"editor"`
+	AvailableEditors    []string       `json:"available_editors,omitempty"`
+	Terminal            TerminalConfig `json:"terminal"`
+	RecentProjects      []string       `json:"recent_projects"`
+	FavoriteProjects    []string       `json:"favorite_projects"`
+	RecentProjectsLimit int            `json:"recent_projects_limit"`
 }
 
 // DefaultIgnoredDirs returns a standard slice of directory names to skip.
