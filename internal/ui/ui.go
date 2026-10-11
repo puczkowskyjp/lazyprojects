@@ -61,7 +61,7 @@ type UI struct {
 
 // New creates and initializes a UI instance.
 func New(cfg *config.Config, version string) *UI {
-	available := editor.DetectAvailable()
+	available := editor.DetectAvailable(cfg.AvailableEditors...)
 	edIdx := 0
 	for i, ed := range available {
 		if strings.EqualFold(ed, cfg.Editor) {

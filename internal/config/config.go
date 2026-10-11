@@ -39,6 +39,7 @@ type Config struct {
 	MaxDepth            int            `json:"max_depth"`
 	IgnoredDirs         []string       `json:"ignored_dirs"`
 	Editor              string         `json:"editor"`
+	AvailableEditors    []string       `json:"available_editors,omitempty"`
 	Terminal            TerminalConfig `json:"terminal"`
 	RecentProjects      []string       `json:"recent_projects"`
 	FavoriteProjects    []string       `json:"favorite_projects"`
@@ -181,6 +182,9 @@ func loadFromLua(path string) (*Config, error) {
 	}
 	if ed := getLuaString(tbl, "editor"); ed != "" {
 		cfg.Editor = ed
+	}
+	if editors := getLuaStringSlice(tbl, "available_editors"); len(editors) > 0 {
+		cfg.AvailableEditors = editors
 	}
 
 	if termVal := tbl.RawGetString("terminal"); termVal != lua.LNil {
@@ -365,6 +369,13 @@ func (c *Config) Save() error {
 
 	// editor
 	sb.WriteString(fmt.Sprintf("  -- Default editor command (\"nvim\", \"code\", \"notepad\", etc.)\n  editor = %q,\n\n", c.Editor))
+
+	// available editors
+	sb.WriteString("  -- Editors available when cycling; an empty list enables all supported editors\n  available_editors = {\n")
+	for _, ed := range c.AvailableEditors {
+		sb.WriteString(fmt.Sprintf("    %q,\n", ed))
+	}
+	sb.WriteString("  },\n\n")
 
 	// recent projects
 	c.RecentProjectsLimit = normalizeRecentProjectsLimit(c.RecentProjectsLimit)

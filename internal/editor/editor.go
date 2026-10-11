@@ -13,6 +13,7 @@ import (
 // KnownEditors lists common editors to probe for availability.
 var KnownEditors = []string{
 	"code",
+	"vs.exe",
 	"nvim",
 	"vim",
 	"goland",
@@ -27,17 +28,26 @@ type TerminalOptions struct {
 	Target string // "tab" or "window"
 }
 
-// DetectAvailable finds which known editors are installed and reachable in PATH.
-func DetectAvailable() []string {
+// DetectAvailable finds configured editors that are installed and reachable in PATH.
+// When no editors are configured, all known editors and $EDITOR are considered.
+func DetectAvailable(configuredEditors ...string) []string {
 	available := make([]string, 0)
 	seen := make(map[string]bool)
-
-	if envEditor := os.Getenv("EDITOR"); envEditor != "" {
-		available = append(available, envEditor)
-		seen[strings.ToLower(envEditor)] = true
+	useConfiguredEditors := len(configuredEditors) > 0
+	editors := KnownEditors
+	if useConfiguredEditors {
+		editors = configuredEditors
 	}
 
-	for _, ed := range KnownEditors {
+	if envEditor := os.Getenv("EDITOR"); envEditor != "" {
+		command := strings.Fields(envEditor)
+		if len(command) > 0 && (!useConfiguredEditors || containsEditor(configuredEditors, command[0])) {
+			available = append(available, envEditor)
+			seen[strings.ToLower(command[0])] = true
+		}
+	}
+
+	for _, ed := range editors {
 		if seen[strings.ToLower(ed)] {
 			continue
 		}
@@ -48,6 +58,15 @@ func DetectAvailable() []string {
 	}
 
 	return available
+}
+
+func containsEditor(editors []string, editor string) bool {
+	for _, candidate := range editors {
+		if strings.EqualFold(candidate, editor) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsTerminalEditor checks if the command is a known terminal-based editor.
