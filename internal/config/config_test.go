@@ -42,6 +42,7 @@ func TestSaveAndLoadCustom(t *testing.T) {
 		MaxDepth:            2,
 		IgnoredDirs:         []string{".git", "vendor"},
 		Editor:              "nvim",
+		AvailableEditors:    []string{"nvim", "vs.exe"},
 		FavoriteProjects:    []string{filepath.Join(tmpDir, "favorite")},
 		RecentProjectsLimit: MaxRecentProjects,
 	}
@@ -62,6 +63,9 @@ func TestSaveAndLoadCustom(t *testing.T) {
 
 	if loaded.Editor != "nvim" {
 		t.Errorf("expected Editor=nvim, got %s", loaded.Editor)
+	}
+	if !reflect.DeepEqual(loaded.AvailableEditors, cfg.AvailableEditors) {
+		t.Errorf("expected AvailableEditors=%v, got %v", cfg.AvailableEditors, loaded.AvailableEditors)
 	}
 	if loaded.MaxDepth != 2 {
 		t.Errorf("expected MaxDepth=2, got %d", loaded.MaxDepth)
@@ -122,6 +126,7 @@ func TestSaveAndLoadJSONRecentProjects(t *testing.T) {
 		MaxDepth:            2,
 		IgnoredDirs:         []string{".git"},
 		Editor:              "nvim",
+		AvailableEditors:    []string{"nvim", "vs.exe"},
 		RecentProjectsLimit: 6,
 		RecentProjects:      []string{"older"},
 		FavoriteProjects:    []string{"favorite"},
@@ -161,5 +166,8 @@ func TestSaveAndLoadJSONRecentProjects(t *testing.T) {
 	}
 	if !reflect.DeepEqual(saved.FavoriteProjects, initial.FavoriteProjects) {
 		t.Errorf("expected FavoriteProjects=%v, got %v", initial.FavoriteProjects, saved.FavoriteProjects)
+	}
+	if !reflect.DeepEqual(saved.AvailableEditors, initial.AvailableEditors) {
+		t.Errorf("expected AvailableEditors=%v, got %v", initial.AvailableEditors, saved.AvailableEditors)
 	}
 }

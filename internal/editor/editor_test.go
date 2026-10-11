@@ -1,6 +1,8 @@
 package editor
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -9,6 +11,30 @@ func TestDetectAvailable(t *testing.T) {
 	editors := DetectAvailable()
 	// On this system, code or notepad should at least be present
 	t.Logf("Detected editors: %v", editors)
+}
+
+func TestDetectAvailableUsesConfiguredEditors(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "vs.exe"), nil, 0755); err != nil {
+		t.Fatalf("creating Visual Studio executable: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "nvim"), nil, 0755); err != nil {
+		t.Fatalf("creating NeoVim executable: %v", err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("EDITOR", "nvim")
+
+	got := DetectAvailable("vs.exe")
+	want := []string{"vs.exe"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("DetectAvailable() = %v, want %v", got, want)
+	}
+}
+
+func TestVisualStudioIsNotTerminalEditor(t *testing.T) {
+	if IsTerminalEditor("vs.exe") {
+		t.Fatal("Visual Studio should be launched as a GUI editor")
+	}
 }
 
 func TestOpenEmptyEditor(t *testing.T) {

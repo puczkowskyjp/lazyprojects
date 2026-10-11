@@ -19,6 +19,12 @@ return {
 
   editor = "code",
 
+  available_editors = {
+    "nvim",
+    "code",
+    "vs.exe",
+  },
+
   terminal = {
     app = "wt",
     target = "tab",

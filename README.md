@@ -45,6 +45,8 @@ Use [`config.example.lua`](config.example.lua) or [`config.example.json`](config
 
 Set `recent_projects_limit` to retain between 5 and 10 recently opened projects; the default is 8. The application maintains the newest-first `recent_projects` list automatically after each successful project launch.
 
+Set `available_editors` to limit the editors offered by the `e` key to installed editors in that list. Omit the setting or use an empty list to allow all supported editors. Supported commands include `code`, `vs.exe`, `nvim`, `vim`, `goland`, `idea`, `subl`, and `notepad`; Visual Studio's `vs.exe` must be reachable in `PATH`.
+
 
 ## Navigation
 
@@ -83,6 +85,12 @@ return {
   },
 
   editor = "nvim",
+
+  available_editors = {
+    "nvim",
+    "code",
+    "vs.exe",
+  },
 
   terminal = {
     app = "wezterm",
