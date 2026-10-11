@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/jroimartin/gocui"
+	"github.com/mattn/go-runewidth"
 	"github.com/puczkowskyjp/lazyprojects/internal/config"
 	"github.com/puczkowskyjp/lazyprojects/internal/editor"
 	"github.com/puczkowskyjp/lazyprojects/internal/model"
@@ -22,6 +23,7 @@ const (
 	ViewRecent    = "recent"
 	ViewFavorites = "favorites"
 	ViewDetails   = "details"
+	ViewLogo      = "logo"
 	ViewSearch    = "search"
 	ViewStatus    = "status"
 )
@@ -259,13 +261,31 @@ func (u *UI) layout(g *gocui.Gui) error {
 		v.Title = fmt.Sprintf(" Projects (%d) ", len(u.filtered))
 	}
 
-	// Details View (right panel)
-	if v, err := g.SetView(ViewDetails, listWidth+1, searchHeight, maxX-1, maxY-statusHeight-1); err != nil {
+	// Details View (right panel) and Logo View below it
+	logoHeight := 6 // reserve lines for ASCII art + version; adjust if needed
+	detailsBottom := maxY - statusHeight - 1 - logoHeight
+	if detailsBottom <= searchHeight {
+		// Not enough space to reserve logo area; let details occupy full area
+		detailsBottom = maxY - statusHeight - 1
+	}
+	if v, err := g.SetView(ViewDetails, listWidth+1, searchHeight, maxX-1, detailsBottom); err != nil {
 		if err != gocui.ErrUnknownView {
 			return err
 		}
 		v.Title = " Project Details & Git Commits "
 		v.Wrap = true
+	}
+
+	// Logo / ASCII art View (right panel, below Details)
+	if v, err := g.SetView(ViewLogo, listWidth+1, detailsBottom+1, maxX-1, maxY-statusHeight-1); err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		// Keep this view display-only
+		v.Title = ""
+		v.Wrap = false
+		v.Autoscroll = false
+		v.Editable = false
 	}
 
 	// Status & Keybindings View (bottom)
@@ -280,6 +300,7 @@ func (u *UI) layout(g *gocui.Gui) error {
 	u.renderRecent(g)
 	u.renderFavorites(g)
 	u.renderDetails(g)
+	u.renderLogo(g)
 	u.renderStatus(g)
 
 	switch u.activeSection {
@@ -437,6 +458,7 @@ func (u *UI) renderDetails(g *gocui.Gui) {
 	isLoading := u.loadingGit[p.Path]
 	u.mu.Unlock()
 
+	// Basic project metadata
 	fmt.Fprintf(v, "Action:   ▶ Press Enter or 'o' to open in [%s]\n", ed)
 	fmt.Fprintf(v, "Project:  %s\n", p.Name)
 	fmt.Fprintf(v, "Type:     %s\n", colorize(p.Type, "1", "36"))
@@ -449,6 +471,7 @@ func (u *UI) renderDetails(g *gocui.Gui) {
 	}
 	fmt.Fprintln(v, strings.Repeat("─", 50))
 
+	// Commit area
 	if hasGitLog {
 		if cachedGit != "" {
 			fmt.Fprintln(v, "Recent Commits:")
@@ -491,6 +514,25 @@ func (u *UI) renderDetails(g *gocui.Gui) {
 		}(p.Path)
 		fmt.Fprintln(v, "Loading git history...")
 	}
+
+}
+
+// trimToWidth returns a substring of s that fits within the given display width.
+func trimToWidth(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	var out []rune
+	w := 0
+	for _, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if w+rw > width {
+			break
+		}
+		out = append(out, r)
+		w += rw
+	}
+	return string(out)
 }
 
 func colorize(text string, codes ...string) string {
@@ -567,16 +609,14 @@ func (u *UI) renderStatus(g *gocui.Gui) {
 	u.mu.Lock()
 	msg := u.statusMsg
 	ed := u.currentEditor()
-	ver := u.Version
 	u.mu.Unlock()
 
-	// include favorite key in help keys and render version at lower-right
+	// include favorite key in help keys
 	keys := fmt.Sprintf("[ or ] Switch section | [j/k or ↑/↓] Move | [Enter/o] Open (%s) | [f] Favorite | [/] Filter | [e] Switch Editor | [r] Rescan | [q] Quit", ed)
 
-	w, h := v.Size()
+	_, h := v.Size()
 	lines := []string{fmt.Sprintf("• %s", msg), fmt.Sprintf("• %s", keys)}
-	// Reserve last line for version at lower-right
-	contentMax := h - 1
+	contentMax := h
 	if contentMax < 1 {
 		contentMax = 1
 	}
@@ -589,25 +629,75 @@ func (u *UI) renderStatus(g *gocui.Gui) {
 		lines = append(lines, "")
 	}
 
-	verText := ver
-	if verText == "" {
-		verText = "development"
-	}
-	// Trim if longer than width, keep rightmost chars
-	if len(verText) > w {
-		verText = verText[len(verText)-w:]
-	}
-	pad := w - len(verText)
-	if pad < 0 {
-		pad = 0
-	}
-	lastLine := fmt.Sprintf("%s%s", strings.Repeat(" ", pad), verText)
-	// Print content lines then the final version line, ensuring total printed lines == contentMax + 1
 	for i := range lines {
 		fmt.Fprintln(v, lines[i])
 	}
-	// write the final line without adding an extra newline to keep it at the bottom
-	fmt.Fprint(v, lastLine)
+}
+
+func (u *UI) renderLogo(g *gocui.Gui) {
+	art := `
+░█░░░█▀█░▀▀█░█░█░█▀█░█▀▄░█▀█░▀▀█░█▀▀░█▀▀░▀█▀░█▀▀
+░█░░░█▀█░▄▀░░░█░░█▀▀░█▀▄░█░█░░░█░█▀▀░█░░░░█░░▀▀█
+░▀▀▀░▀░▀░▀▀▀░░▀░░▀░░░▀░▀░▀▀▀░▀▀░░▀▀▀░▀▀▀░░▀░░▀▀▀
+`
+
+	lv, err := g.View(ViewLogo)
+	if err != nil {
+		// Logo view may not exist in very small layouts; nothing to render
+		return
+	}
+	lv.Clear()
+
+	w, h := lv.Size()
+	if w <= 0 || h <= 0 {
+		return
+	}
+
+	artLines := strings.Split(strings.Trim(art, "\n"), "\n")
+	for i, line := range artLines {
+		if runewidth.StringWidth(line) > w {
+			artLines[i] = trimToWidth(line, w)
+		}
+	}
+
+	// Reserve one line for the version text
+	reserve := 1
+	maxArtLines := h - reserve
+	if maxArtLines < 0 {
+		maxArtLines = 0
+	}
+
+	if len(artLines) > maxArtLines {
+		artLines = artLines[:maxArtLines]
+	}
+
+	for _, line := range artLines {
+		pad := w - runewidth.StringWidth(line)
+		if pad < 0 {
+			pad = 0
+		}
+		fmt.Fprintln(lv, strings.Repeat(" ", pad)+line)
+	}
+
+	// Fill remaining art area with blank lines if desired (keeps the version at the bottom of the view)
+	remainingLines := maxArtLines - len(artLines)
+	for i := 0; i < remainingLines; i++ {
+		fmt.Fprintln(lv, "")
+	}
+
+	// Render version at the bottom of the logo view, right-aligned
+	verText := u.Version
+	if verText == "" {
+		verText = "development"
+	}
+	if runewidth.StringWidth(verText) > w {
+		verText = trimToWidth(verText, w)
+	}
+	pad := w - runewidth.StringWidth(verText)
+	if pad < 0 {
+		pad = 0
+	}
+	fmt.Fprintln(lv, strings.Repeat(" ", pad)+verText)
 }
 
 func (u *UI) setKeybindings() error {
